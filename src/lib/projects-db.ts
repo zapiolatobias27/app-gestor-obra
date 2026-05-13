@@ -103,9 +103,14 @@ export async function createProject(
   budgetEstimated: number,
   creatorName: string,
   creatorEmail: string,
-  creatorUserId: string,
+  _creatorUserId: string,
 ): Promise<Project> {
   const supabase = createClient()
+
+  // Siempre usamos el usuario autenticado real, nunca el parámetro
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+  if (authError || !user) throw new Error("No autenticado")
+
   const inviteCode = "INV-" + Math.random().toString(36).slice(2, 8).toUpperCase()
 
   const { data, error } = await supabase
@@ -119,20 +124,22 @@ export async function createProject(
       budget_real: 0,
       status: "planning",
       invite_code: inviteCode,
-      created_by: creatorUserId,
+      created_by: user.id,
     })
     .select()
     .single()
 
   if (error) throw new Error(error.message)
 
-  await supabase.from("project_members").insert({
+  const { error: memberError } = await supabase.from("project_members").insert({
     project_id: data.id,
-    user_id: creatorUserId,
-    name: creatorName,
-    email: creatorEmail,
+    user_id: user.id,
+    name: creatorName || user.email || "",
+    email: creatorEmail || user.email || "",
     role: "owner",
   })
+
+  if (memberError) throw new Error(memberError.message)
 
   return mapProject(data)
 }
