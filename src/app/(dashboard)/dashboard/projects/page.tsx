@@ -296,10 +296,14 @@ function NewProjectForm({ userId, userName, userEmail, onCreated }: {
       setError("Completá nombre, dirección y cliente.")
       return
     }
-    const budgetN = parseFloat(budget.replace(/\./g, "").replace(",", ".")) || 0
-    const project = await createProject(name.trim(), address.trim(), client.trim(), startDate, budgetN, userName, userEmail, userId)
-    setActiveProjectId(project.id)
-    onCreated()
+    try {
+      const budgetN = parseFloat(budget.replace(/\./g, "").replace(",", ".")) || 0
+      const project = await createProject(name.trim(), address.trim(), client.trim(), startDate, budgetN, userName, userEmail, userId)
+      setActiveProjectId(project.id)
+      onCreated()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al crear el proyecto")
+    }
   }
 
   return (
