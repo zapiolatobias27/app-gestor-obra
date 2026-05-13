@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState, useEffect, useCallback } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   getProject,
   getStages,
@@ -75,23 +76,21 @@ function DailyCashBox({ role, tick }: DailyCashBoxProps) {
   const [savedNote, setSavedNote] = useState("")
 
   useEffect(() => {
-    const entries = getDailyBudgetEntries()
-    const entry = entries.find((e) => e.date === today)
-    if (entry) {
-      setSavedAmount(entry.amount)
-      setSavedNote(entry.note ?? "")
-    } else {
-      setSavedAmount(null)
-      setSavedNote("")
+    async function load() {
+      const entries = await getDailyBudgetEntries()
+      const entry = entries.find((e) => e.date === today)
+      if (entry) { setSavedAmount(entry.amount); setSavedNote(entry.note ?? "") }
+      else { setSavedAmount(null); setSavedNote("") }
     }
+    load()
   }, [today, tick])
 
   const canEdit = role === "owner" || role === "architect"
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const parsed = parseFloat(amount.replace(/\./g, "").replace(",", "."))
     if (isNaN(parsed)) return
-    upsertDailyBudgetEntry({ date: today, amount: parsed, note: note.trim() || undefined })
+    await upsertDailyBudgetEntry({ date: today, amount: parsed, note: note.trim() || undefined })
     setSavedAmount(parsed)
     setSavedNote(note.trim())
     setEditing(false)
@@ -163,13 +162,13 @@ interface ApprovalNotifProps {
 function ApprovalNotif({ requests, userName, onAction }: ApprovalNotifProps) {
   if (requests.length === 0) return null
 
-  const handleApprove = (id: string) => {
-    approvePurchaseRequest(id, userName)
+  const handleApprove = async (id: string) => {
+    await approvePurchaseRequest(id, userName)
     onAction()
   }
 
-  const handleReject = (id: string) => {
-    rejectPurchaseRequest(id, userName)
+  const handleReject = async (id: string) => {
+    await rejectPurchaseRequest(id, userName)
     onAction()
   }
 
@@ -284,10 +283,10 @@ function PurchaseRequestModal({ userName, onCreated, onClose }: PurchaseRequestM
   const [desc, setDesc] = useState("")
   const [amount, setAmount] = useState("")
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const parsed = parseFloat(amount.replace(/\./g, "").replace(",", "."))
     if (!desc.trim() || isNaN(parsed) || parsed <= 0) return
-    createPurchaseRequest(desc.trim(), parsed, userName)
+    await createPurchaseRequest(desc.trim(), parsed, userName)
     onCreated()
     onClose()
   }, [desc, amount, userName, onCreated, onClose])
@@ -392,37 +391,62 @@ function CollapsibleSection({ title, storageKey, defaultOpen = true, children }:
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [role, setRole] = useState<UserRole>("supervisor")
-  const [userName, setUserName] = useState("Usuario")
-  const [tick, setTick] = useState(0)
-  const [mounted, setMounted] = useState(false)
+  const router = useRouter()
+  const [role, setRole]                   = useState<UserRole>("supervisor")
+  const [userName, setUserName]           = useState("Usuario")
+  const [tick, setTick]                   = useState(0)
   const [showPurchaseModal, setShowPurchaseModal] = useState(false)
+  const [project, setProject]             = useState<import("@/types/project").Project | null>(null)
+  const [stages, setStages]               = useState<import("@/types/project").Stage[]>([])
+  const [tasks, setTasks]                 = useState<import("@/types/project").Task[]>([])
+  const [alerts, setAlerts]               = useState<import("@/types/stock").AuditAlert[]>([])
+  const [criticalPurchases, setCritical]  = useState<import("@/types/project").PurchaseScheduleItem[]>([])
+  const [pendingRequests, setPending]     = useState<import("@/types/project").PurchaseRequest[]>([])
+  const [resolvedRequests, setResolved]   = useState<import("@/types/project").PurchaseRequest[]>([])
+  const [movements, setMovements]         = useState<import("@/types/project").BudgetMovement[]>([])
+  const [stageSummary, setStageSummary]   = useState<import("@/lib/mock-db").ProjectStageSummary | null>(null)
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
 
   useEffect(() => {
-    setMounted(true)
-    const raw = localStorage.getItem("obra:session")
-    if (raw) {
-      try {
-        const s = JSON.parse(raw)
-        setRole(s.user.role as UserRole)
-        setUserName(s.user.name ?? "Usuario")
-      } catch { /* keep default */ }
+    async function load() {
+      const { createClient } = await import("@/lib/supabase/client")
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase.from("profiles").select("name, role").eq("id", user.id).single()
+        setRole((profile?.role as UserRole) ?? "supervisor")
+        setUserName(profile?.name ?? "Usuario")
+      }
+      const proj = await getProject()
+      if (!proj) {
+        router.replace("/dashboard/projects")
+        return
+      }
+      const [stgs, tsks, alts, crit, pend, res, movs, summary] = await Promise.all([
+        getStages(),
+        getTasks(),
+        getAlerts(),
+        getCriticalPurchases(),
+        getPendingPurchaseRequests(),
+        getRecentResolvedRequests(),
+        getBudgetMovements(),
+        getProjectStageSummary(),
+      ])
+      setProject(proj)
+      setStages(stgs)
+      setTasks(tsks)
+      setAlerts(alts)
+      setCritical(crit)
+      setPending(pend)
+      setResolved(res)
+      setMovements(movs)
+      setStageSummary(summary)
     }
-  }, [])
+    load()
+  }, [tick, router])
 
-  const project           = useMemo(() => mounted ? getProject() : null, [tick, mounted])
-  const stages            = useMemo(() => mounted ? getStages() : [], [tick, mounted])
-  const tasks             = useMemo(() => mounted ? getTasks() : [], [tick, mounted])
-  const alerts            = useMemo(() => mounted ? getAlerts() : [], [tick, mounted])
-  const criticalPurchases = useMemo(() => mounted ? getCriticalPurchases() : [], [tick, mounted])
-  const pendingRequests   = useMemo(() => mounted ? getPendingPurchaseRequests() : [], [tick, mounted])
-  const resolvedRequests  = useMemo(() => mounted ? getRecentResolvedRequests() : [], [tick, mounted])
-  const movements         = useMemo(() => mounted ? getBudgetMovements() : [], [tick, mounted])
-  const stageSummary      = useMemo(() => mounted ? getProjectStageSummary() : null, [mounted, tick])
-
-  if (!mounted || !project) return null
+  if (!project) return null
 
   const completedStages = stages.filter((s) => s.status === "completed").length
   const totalTasks      = tasks.length

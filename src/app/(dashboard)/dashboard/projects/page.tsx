@@ -3,11 +3,12 @@
 import React, { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
-  getAllProjectBlobs, createProject, finalizeProject, reopenProject,
+  getAllProjects, createProject, finalizeProject, reopenProject,
   setActiveProjectId, getActiveProjectId, approveJoinRequest,
-  rejectJoinRequest, updateMemberRole, removeMember, ProjectBlob,
+  rejectJoinRequest, updateMemberRole, removeMember,
+  getProjectMembers, getJoinRequests,
 } from "@/lib/projects-db"
-import { UserRole, JoinRequest, ProjectMember } from "@/types/project"
+import { Project, UserRole, JoinRequest, ProjectMember } from "@/types/project"
 
 const ROLE_LABEL: Record<UserRole, string> = {
   owner: "Propietario",
@@ -65,12 +66,12 @@ function JoinRequestRow({
 }: { req: JoinRequest; projectId: string; onAction: () => void }) {
   const [selectedRole, setSelectedRole] = useState<UserRole>("supervisor")
 
-  const handleApprove = () => {
-    approveJoinRequest(projectId, req.id, selectedRole)
+  const handleApprove = async () => {
+    await approveJoinRequest(projectId, req.id, selectedRole)
     onAction()
   }
-  const handleReject = () => {
-    rejectJoinRequest(projectId, req.id)
+  const handleReject = async () => {
+    await rejectJoinRequest(projectId, req.id)
     onAction()
   }
 
@@ -117,15 +118,15 @@ function MemberRow({
   const [editing, setEditing] = useState(false)
   const [role, setRole] = useState<UserRole>(member.role)
 
-  const handleSave = () => {
-    updateMemberRole(projectId, member.userId, role)
+  const handleSave = async () => {
+    await updateMemberRole(projectId, member.userId, role)
     setEditing(false)
     onAction()
   }
 
-  const handleRemove = () => {
+  const handleRemove = async () => {
     if (confirm(`¿Eliminar a ${member.name} del proyecto?`)) {
-      removeMember(projectId, member.userId)
+      await removeMember(projectId, member.userId)
       onAction()
     }
   }
@@ -164,23 +165,22 @@ function MemberRow({
 
 // ─── Project card ─────────────────────────────────────────────────────────────
 
+type ProjectData = { project: Project; members: ProjectMember[]; joinRequests: JoinRequest[] }
+
 function ProjectCard({
-  blob, isActive, currentUserRole, onSwitch, onAction,
+  data, isActive, currentUserRole, onSwitch, onAction,
 }: {
-  blob: ProjectBlob
+  data: ProjectData
   isActive: boolean
   currentUserRole: UserRole
   onSwitch: () => void
   onAction: () => void
 }) {
-  const { project } = blob
+  const { project, members, joinRequests } = data
   const isOwner = currentUserRole === "owner"
   const [expanded, setExpanded] = useState(isActive)
 
-  const pendingRequests = (project.joinRequests ?? []).filter((r) => r.status === "pending")
-  const completedPct = blob.tasks.length > 0
-    ? Math.round(blob.tasks.filter((t) => t.status === "completed").length / blob.tasks.length * 100)
-    : 0
+  const pendingRequests = joinRequests.filter((r) => r.status === "pending")
 
   return (
     <div className={`proj-card ${isActive ? "proj-card-active" : ""} ${project.status === "completed" ? "proj-card-done" : ""}`}>
@@ -207,7 +207,6 @@ function ProjectCard({
           <span>Inicio: {fmtDate(project.startDate)}</span>
           {project.endDate && <span>Fin: {fmtDate(project.endDate)}</span>}
           <span>Presupuesto: {fmt(project.budgetEstimated)}</span>
-          {blob.tasks.length > 0 && <span>Avance: {completedPct}%</span>}
         </div>
 
         {/* Actions */}
@@ -224,9 +223,9 @@ function ProjectCard({
             <button
               type="button"
               className="proj-btn-danger"
-              onClick={() => {
+              onClick={async () => {
                 if (confirm(`¿Dar por finalizado "${project.name}"? Se marcará como completado.`)) {
-                  finalizeProject(project.id)
+                  await finalizeProject(project.id)
                   onAction()
                 }
               }}
@@ -238,7 +237,7 @@ function ProjectCard({
             <button
               type="button"
               className="proj-btn-ghost"
-              onClick={() => { reopenProject(project.id); onAction() }}
+              onClick={async () => { await reopenProject(project.id); onAction() }}
             >
               Reabrir proyecto
             </button>
@@ -255,20 +254,20 @@ function ProjectCard({
           )}
 
           {/* Solicitudes de ingreso — solo owner */}
-          {isOwner && (project.joinRequests ?? []).length > 0 && (
+          {isOwner && joinRequests.length > 0 && (
             <div className="proj-section">
               <p className="proj-section-title">Solicitudes de ingreso</p>
-              {(project.joinRequests ?? []).map((r) => (
+              {joinRequests.map((r) => (
                 <JoinRequestRow key={r.id} req={r} projectId={project.id} onAction={onAction} />
               ))}
             </div>
           )}
 
           {/* Miembros */}
-          {(project.members ?? []).length > 0 && (
+          {members.length > 0 && (
             <div className="proj-section">
-              <p className="proj-section-title">Colaboradores ({(project.members ?? []).length})</p>
-              {(project.members ?? []).map((m) => (
+              <p className="proj-section-title">Colaboradores ({members.length})</p>
+              {members.map((m) => (
                 <MemberRow key={m.userId} member={m} projectId={project.id} canEdit={isOwner} onAction={onAction} />
               ))}
             </div>
@@ -291,15 +290,15 @@ function NewProjectForm({ userId, userName, userEmail, onCreated }: {
   const [budget, setBudget]   = useState("")
   const [error, setError]     = useState("")
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim() || !address.trim() || !client.trim()) {
       setError("Completá nombre, dirección y cliente.")
       return
     }
     const budgetN = parseFloat(budget.replace(/\./g, "").replace(",", ".")) || 0
-    const blob = createProject(name.trim(), address.trim(), client.trim(), startDate, budgetN, userName, userEmail, userId)
-    setActiveProjectId(blob.project.id)
+    const project = await createProject(name.trim(), address.trim(), client.trim(), startDate, budgetN, userName, userEmail, userId)
+    setActiveProjectId(project.id)
     onCreated()
   }
 
@@ -339,31 +338,53 @@ function NewProjectForm({ userId, userName, userEmail, onCreated }: {
 export default function ProjectsPage() {
   const router = useRouter()
   const [mounted, setMounted] = useState(false)
-  const [blobs, setBlobs] = useState<ProjectBlob[]>([])
+  const [projectsData, setProjectsData] = useState<ProjectData[]>([])
   const [activeId, setActiveId] = useState("")
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>("supervisor")
-  const [currentUserId, setCurrentUserId]     = useState("1")
+  const [currentUserId, setCurrentUserId]     = useState("")
   const [currentUserName, setCurrentUserName] = useState("")
   const [currentUserEmail, setCurrentUserEmail] = useState("")
   const [showNewForm, setShowNewForm] = useState(false)
 
-  const reload = useCallback(() => {
-    setBlobs(getAllProjectBlobs())
+  const reload = useCallback(async () => {
+    const projects = await getAllProjects()
+    const dataList = await Promise.all(
+      projects.map(async (project) => {
+        const [members, joinRequests] = await Promise.all([
+          getProjectMembers(project.id),
+          getJoinRequests(project.id),
+        ])
+        return { project, members, joinRequests }
+      })
+    )
+    setProjectsData(dataList)
     setActiveId(getActiveProjectId())
   }, [])
 
   useEffect(() => {
     setMounted(true)
-    const raw = localStorage.getItem("obra:session")
-    if (raw) {
-      try {
-        const s = JSON.parse(raw)
-        setCurrentUserRole(s.user.role as UserRole)
-        setCurrentUserId(s.user.id ?? "1")
-        setCurrentUserName(s.user.name ?? "")
-        setCurrentUserEmail(s.user.email ?? "")
-      } catch { /* keep defaults */ }
+    setActiveId(getActiveProjectId())
+
+    const loadSession = async () => {
+      const { createClient } = await import("@/lib/supabase/client")
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setCurrentUserId(user.id)
+        setCurrentUserEmail(user.email ?? "")
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("name, role")
+          .eq("id", user.id)
+          .single()
+        if (profile) {
+          setCurrentUserName((profile.name as string) ?? "")
+          setCurrentUserRole((profile.role as UserRole) ?? "supervisor")
+        }
+      }
     }
+
+    loadSession()
     reload()
   }, [reload])
 
@@ -376,6 +397,7 @@ export default function ProjectsPage() {
   if (!mounted) return null
 
   const isOwner = currentUserRole === "owner"
+  const activeProject = projectsData.find((d) => d.project.id === activeId)?.project
 
   return (
     <div className="page-wrap space-y-6">
@@ -383,8 +405,8 @@ export default function ProjectsPage() {
         <p className="page-eyebrow">Gestión de proyectos</p>
         <h1 className="page-title">Mis Proyectos</h1>
         <p className="page-subtitle">
-          {blobs.length} proyecto{blobs.length !== 1 ? "s" : ""} · activo:{" "}
-          {blobs.find((b) => b.project.id === activeId)?.project.name ?? "—"}
+          {projectsData.length} proyecto{projectsData.length !== 1 ? "s" : ""} · activo:{" "}
+          {activeProject?.name ?? "—"}
         </p>
       </div>
 
@@ -413,13 +435,13 @@ export default function ProjectsPage() {
 
       {/* Lista de proyectos */}
       <div className="proj-list">
-        {blobs.map((blob) => (
+        {projectsData.map((data) => (
           <ProjectCard
-            key={blob.project.id}
-            blob={blob}
-            isActive={blob.project.id === activeId}
+            key={data.project.id}
+            data={data}
+            isActive={data.project.id === activeId}
             currentUserRole={currentUserRole}
-            onSwitch={() => handleSwitch(blob.project.id)}
+            onSwitch={() => handleSwitch(data.project.id)}
             onAction={reload}
           />
         ))}

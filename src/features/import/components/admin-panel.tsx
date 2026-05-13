@@ -26,10 +26,8 @@ export function AdminPanel() {
   const [step, setStep] = useState(0)
   const [counts, setCounts] = useState<Counts>({ stages: 0, supplies: 0, purchases: 0, budget: 0 })
 
-  const reloadCounts = (): void => {
-    const stages    = getStages()
-    const supplies  = getSupplies()
-    const purchases = getPurchases()
+  const reloadCounts = async (): Promise<void> => {
+    const [stages, supplies, purchases] = await Promise.all([getStages(), getSupplies(), getPurchases()])
     setCounts({
       stages:    stages.length,
       supplies:  supplies.length,
@@ -38,7 +36,7 @@ export function AdminPanel() {
     })
   }
 
-  useEffect(() => { reloadCounts() }, [])
+  useEffect(() => { reloadCounts() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasData: Record<StepKey, boolean> = {
     etapas:    counts.stages > 0,

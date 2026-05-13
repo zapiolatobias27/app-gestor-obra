@@ -44,12 +44,13 @@ export function LogisticaEditor({ onSaved }: { onSaved?: () => void }) {
   const [toast, setToast] = useState("")
   const [showExtra, setShowExtra] = useState(false)
 
-  const refresh = () => {
-    setStages(getStages())
-    setPurchases(getPurchases())
+  const refresh = async () => {
+    const [s, p] = await Promise.all([getStages(), getPurchases()])
+    setStages(s)
+    setPurchases(p)
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { refresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedId === NEW) {
@@ -65,16 +66,16 @@ export function LogisticaEditor({ onSaved }: { onSaved?: () => void }) {
     setTimeout(() => setToast(""), 2200)
   }
 
-  const handleSave = (): void => {
+  const handleSave = async (): Promise<void> => {
     if (!form.material.trim() || !form.stageId) {
       showToast("Completá etapa y material")
       return
     }
     if (selectedId === NEW) {
-      addPurchase(form)
+      await addPurchase(form)
       showToast("Compra creada ✓")
     } else {
-      updatePurchase(form)
+      await updatePurchase(form)
       showToast("Compra actualizada ✓")
     }
     refresh()
@@ -82,10 +83,10 @@ export function LogisticaEditor({ onSaved }: { onSaved?: () => void }) {
     onSaved?.()
   }
 
-  const handleDelete = (): void => {
+  const handleDelete = async (): Promise<void> => {
     if (selectedId === NEW) return
     if (!confirm("¿Eliminar compra?")) return
-    deletePurchase(selectedId)
+    await deletePurchase(selectedId)
     showToast("Compra eliminada")
     refresh()
     setSelectedId(NEW)

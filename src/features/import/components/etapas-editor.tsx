@@ -41,9 +41,9 @@ export function EtapasEditor({ onSaved }: { onSaved?: () => void }) {
   const [toast, setToast] = useState("")
   const [showExtra, setShowExtra] = useState(false)
 
-  const refresh = () => setStages(getStages())
+  const refresh = async () => { const s = await getStages(); setStages(s) }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { refresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedId === NEW) {
@@ -59,16 +59,16 @@ export function EtapasEditor({ onSaved }: { onSaved?: () => void }) {
     setTimeout(() => setToast(""), 2200)
   }
 
-  const handleSave = (): void => {
+  const handleSave = async (): Promise<void> => {
     if (!form.name.trim() || !form.code.trim()) {
       showToast("Completá código y nombre")
       return
     }
     if (selectedId === NEW) {
-      addStage(form)
+      await addStage(form)
       showToast("Etapa creada ✓")
     } else {
-      updateStage(form)
+      await updateStage(form)
       showToast("Etapa actualizada ✓")
     }
     refresh()
@@ -76,10 +76,10 @@ export function EtapasEditor({ onSaved }: { onSaved?: () => void }) {
     onSaved?.()
   }
 
-  const handleDelete = (): void => {
+  const handleDelete = async (): Promise<void> => {
     if (selectedId === NEW) return
     if (!confirm("¿Eliminar etapa? También se borrarán sus tareas, insumos y compras.")) return
-    deleteStage(selectedId)
+    await deleteStage(selectedId)
     showToast("Etapa eliminada")
     refresh()
     setSelectedId(NEW)

@@ -37,13 +37,14 @@ export function StockEditor({ onSaved }: { onSaved?: () => void }) {
   const [toast, setToast] = useState("")
   const [showExtra, setShowExtra] = useState(false)
 
-  const refresh = () => {
-    setStages(getStages())
-    setTasks(getTasks())
-    setSupplies(getSupplies())
+  const refresh = async () => {
+    const [s, t, sup] = await Promise.all([getStages(), getTasks(), getSupplies()])
+    setStages(s)
+    setTasks(t)
+    setSupplies(sup)
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { refresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedId === NEW) {
@@ -59,16 +60,16 @@ export function StockEditor({ onSaved }: { onSaved?: () => void }) {
     setTimeout(() => setToast(""), 2200)
   }
 
-  const handleSave = (): void => {
+  const handleSave = async (): Promise<void> => {
     if (!form.name.trim() || !form.stageId) {
       showToast("Completá etapa y nombre")
       return
     }
     if (selectedId === NEW) {
-      addSupply(form)
+      await addSupply(form)
       showToast("Insumo creado ✓")
     } else {
-      updateSupply(form)
+      await updateSupply(form)
       showToast("Insumo actualizado ✓")
     }
     refresh()
@@ -76,10 +77,10 @@ export function StockEditor({ onSaved }: { onSaved?: () => void }) {
     onSaved?.()
   }
 
-  const handleDelete = (): void => {
+  const handleDelete = async (): Promise<void> => {
     if (selectedId === NEW) return
     if (!confirm("¿Eliminar insumo?")) return
-    deleteSupply(selectedId)
+    await deleteSupply(selectedId)
     showToast("Insumo eliminado")
     refresh()
     setSelectedId(NEW)

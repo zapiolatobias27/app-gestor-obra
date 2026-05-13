@@ -314,7 +314,6 @@ function AddEventModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CalendarioPage() {
-  const [mounted, setMounted] = useState(false)
   const [userName, setUserName] = useState("")
   const today = new Date()
   const [year, setYear]   = useState(today.getFullYear())
@@ -324,25 +323,30 @@ export default function CalendarioPage() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [addDate, setAddDate] = useState<string | null>(null)
 
-  const reload = useCallback(() => {
-    const manual     = getCalendarEvents()
-    const auto       = getPurchaseCalendarEvents()
-    const stockAlerts = getStockAlertCalendarEvents()
-    const merged = [...auto, ...stockAlerts, ...manual]
-    setAllEvents(merged)
-    setSupplies(getSupplies())
+  const reload = useCallback(async () => {
+    const [manual, auto, stockAlerts, sups] = await Promise.all([
+      getCalendarEvents(),
+      getPurchaseCalendarEvents(),
+      getStockAlertCalendarEvents(),
+      getSupplies(),
+    ])
+    setAllEvents([...auto, ...stockAlerts, ...manual])
+    setSupplies(sups)
   }, [])
 
   useEffect(() => {
-    setMounted(true)
-    const raw = localStorage.getItem("obra:session")
-    if (raw) {
-      try { setUserName(JSON.parse(raw).user.name ?? "") } catch { /* ignore */ }
+    async function init() {
+      const { createClient } = await import("@/lib/supabase/client")
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const { data: profile } = await supabase.from("profiles").select("name").eq("id", user.id).single()
+        setUserName(profile?.name ?? "")
+      }
+      reload()
     }
-    reload()
+    init()
   }, [reload])
-
-  if (!mounted) return null
 
   const cells = getMonthGrid(year, month)
   const todayKey = toDateKey(today)

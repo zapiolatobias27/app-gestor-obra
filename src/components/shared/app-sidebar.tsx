@@ -5,6 +5,8 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { UserRole } from "@/types/user"
+import { createClient } from "@/lib/supabase/client"
+import { signOut } from "@/lib/auth-client"
 
 const ROLE_LABEL: Record<UserRole, string> = {
   owner: "Propietario",
@@ -159,20 +161,16 @@ export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const load = () => {
-      const raw = typeof window !== "undefined" ? localStorage.getItem("obra:session") : null
-      if (raw) {
-        try {
-          const session = JSON.parse(raw)
-          setRole(session.user.role as UserRole)
-          setUserName(session.user.name ?? "")
-          setUserEmail(session.user.email ?? "")
-        } catch { /* keep defaults */ }
+    const supabase = createClient()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      setUserEmail(user.email ?? "")
+      const { data: profile } = await supabase.from("profiles").select("name, role").eq("id", user.id).single()
+      if (profile) {
+        setUserName(profile.name ?? "")
+        setRole((profile.role as UserRole) ?? "supervisor")
       }
-    }
-    load()
-    window.addEventListener("obra:session-updated", load)
-    return () => window.removeEventListener("obra:session-updated", load)
+    })
   }, [])
 
   // Close sidebar on route change (mobile)
@@ -190,9 +188,10 @@ export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
     return () => document.removeEventListener("mousedown", handler)
   }, [menuOpen])
 
-  const handleLogout = () => {
-    localStorage.removeItem("obra:session")
+  const handleLogout = async () => {
+    await signOut()
     router.push("/login")
+    router.refresh()
   }
 
   const navItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE.supervisor

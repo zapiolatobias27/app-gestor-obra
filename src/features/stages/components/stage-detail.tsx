@@ -26,11 +26,11 @@ function AddTaskForm({ stageId, onAdded }: { stageId: string; onAdded: () => voi
   const [role, setRole]         = useState<UserRole>("supervisor")
   const [error, setError]       = useState("")
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim())    { setError("El título es obligatorio."); return }
     if (!category.trim()) { setError("La categoría es obligatoria."); return }
-    addTask({
+    await addTask({
       id: `task-${Date.now()}`,
       stageId,
       title: title.trim(),
@@ -112,7 +112,7 @@ export function StageDetail({ stage, tasks: initialTasks, currentUserId, current
   const [tasks, setTasks]       = useState<Task[]>(initialTasks)
   const [showForm, setShowForm] = useState(false)
 
-  const reload = () => setTasks(getTasksByStage(stage.id))
+  const reload = async () => { const t = await getTasksByStage(stage.id); setTasks(t) }
 
   const completedCount = useMemo(() => tasks.filter((t) => t.status === "completed").length, [tasks])
   const blockedCount   = useMemo(() => tasks.filter((t) => t.status === "blocked").length, [tasks])

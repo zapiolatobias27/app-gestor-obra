@@ -1,19 +1,25 @@
 "use client"
 
-import React, { useCallback, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import { getStages, getTasks } from "@/lib/mock-db"
+import { Stage, Task } from "@/types/project"
 import { StagesList } from "@/features/stages/components/stages-list"
 import { EtapasEditor } from "@/features/import/components/etapas-editor"
 
 export default function StagesPage() {
-  const [mounted, setMounted]       = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [showForm, setShowForm]     = useState(false)
+  const [stages, setStages]         = useState<Stage[]>([])
+  const [tasks, setTasks]           = useState<Task[]>([])
 
-  React.useEffect(() => { setMounted(true) }, [])
-
-  const stages = useMemo(() => mounted ? getStages() : [], [refreshKey, mounted])
-  const tasks  = useMemo(() => mounted ? getTasks()  : [], [refreshKey, mounted])
+  useEffect(() => {
+    async function load() {
+      const [s, t] = await Promise.all([getStages(), getTasks()])
+      setStages(s)
+      setTasks(t)
+    }
+    load()
+  }, [refreshKey])
 
   const total     = tasks.length
   const completed = tasks.filter((t) => t.status === "completed").length
@@ -23,8 +29,6 @@ export default function StagesPage() {
     setRefreshKey((k) => k + 1)
     setShowForm(false)
   }, [])
-
-  if (!mounted) return null
 
   return (
     <div className="page-wrap space-y-6">

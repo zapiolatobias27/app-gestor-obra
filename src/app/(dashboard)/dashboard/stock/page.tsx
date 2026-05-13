@@ -1,16 +1,26 @@
 "use client"
 
-import React, { useMemo, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { getSupplies, getStages, getTasks, addSupply } from "@/lib/mock-db"
 import { checkAllDeviations, formatDeviation } from "@/features/stock/logic/deviation-check"
 import { StockTable } from "@/features/stock/components/stock-table"
 import { Stage, Task } from "@/types/project"
+import type { SupplyItem } from "@/types/stock"
 
 // ─── Formulario agregar insumo ─────────────────────────────────────────────
 
 function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
-  const stages = useMemo(() => getStages(), [])
-  const tasks  = useMemo(() => getTasks(), [])
+  const [stages, setStages] = useState<Stage[]>([])
+  const [tasks, setTasks]   = useState<Task[]>([])
+
+  useEffect(() => {
+    async function load() {
+      const [s, t] = await Promise.all([getStages(), getTasks()])
+      setStages(s)
+      setTasks(t)
+    }
+    load()
+  }, [])
 
   const [stageId, setStageId] = useState("")
   const [taskId,  setTaskId]  = useState("")
@@ -29,12 +39,12 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
     setTaskId("")
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!stageId)     { setError("Seleccioná una etapa."); return }
     if (!name.trim()) { setError("Ingresá el nombre del material."); return }
     if (!unit.trim()) { setError("Ingresá la unidad."); return }
-    addSupply({
+    await addSupply({
       id: `sup-${Date.now()}`,
       stageId,
       taskId: taskId || undefined,
@@ -150,15 +160,22 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
 // ─── Page ──────────────────────────────────────────────────────────────────
 
 export default function StockPage() {
-  const [mounted, setMounted]         = useState(false)
   const [refreshKey, setRefreshKey]   = useState(0)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [supplies, setSupplies]       = useState<SupplyItem[]>([])
+  const [stages, setStages]           = useState<Stage[]>([])
+  const [allTasks, setAllTasks]       = useState<Task[]>([])
 
-  React.useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    async function load() {
+      const [s, st, t] = await Promise.all([getSupplies(), getStages(), getTasks()])
+      setSupplies(s)
+      setStages(st)
+      setAllTasks(t)
+    }
+    load()
+  }, [refreshKey])
 
-  const supplies   = useMemo(() => mounted ? getSupplies() : [], [refreshKey, mounted])
-  const stages     = useMemo(() => mounted ? getStages()   : [], [refreshKey, mounted])
-  const allTasks   = useMemo(() => mounted ? getTasks()    : [], [refreshKey, mounted])
   const deviations = useMemo(() => checkAllDeviations(supplies), [supplies])
 
   const stageMap = Object.fromEntries(stages.map((s) => [s.id, s.name]))
@@ -170,8 +187,6 @@ export default function StockPage() {
     setRefreshKey((k) => k + 1)
     setShowAddForm(false)
   }
-
-  if (!mounted) return null
 
   return (
     <div className="page-wrap space-y-6">

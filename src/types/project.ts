@@ -1,7 +1,8 @@
 export type ProjectStatus = "planning" | "in_progress" | "paused" | "completed"
 export type TaskStatus = "pending" | "in_progress" | "completed" | "blocked"
 // UserRole is the single source of truth in @/types/user — re-exported here for backwards compat
-export type { UserRole } from "@/types/user"
+import type { UserRole } from "@/types/user"
+export type { UserRole }
 
 export interface ProjectMember {
   userId: string

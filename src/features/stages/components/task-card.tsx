@@ -38,31 +38,31 @@ const ROLE_LABEL: Record<UserRole, string> = {
 }
 
 function TaskMaterials({ task }: { task: Task }) {
-  const [supplies, setSupplies] = useState<SupplyItem[]>(() =>
-    getSupplies().filter((s) => s.taskId === task.id)
-  )
+  const [supplies, setSupplies] = useState<SupplyItem[]>([])
   const [open, setOpen]         = useState(false)
   const [showAdd, setShowAdd]   = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [useAmounts, setUseAmounts] = useState<Record<string, string>>({})
 
-  // New supply form
   const [name, setName]   = useState("")
   const [unit, setUnit]   = useState("")
   const [qty,  setQty]    = useState("")
   const [stock, setStock] = useState("")
   const [formErr, setFormErr] = useState("")
-
-  // Inline planned-qty edit
   const [editQty, setEditQty] = useState("")
 
-  const reload = () => setSupplies(getSupplies().filter((s) => s.taskId === task.id))
+  const reload = async () => {
+    const all = await getSupplies()
+    setSupplies(all.filter((s) => s.taskId === task.id))
+  }
 
-  const handleAdd = (e: React.FormEvent) => {
+  React.useEffect(() => { reload() }, [task.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) { setFormErr("Ingresá el nombre del material."); return }
     if (!unit.trim()) { setFormErr("Ingresá la unidad."); return }
-    addSupply({
+    await addSupply({
       id: `sup-${Date.now()}`,
       stageId: task.stageId,
       taskId: task.id,
@@ -77,8 +77,8 @@ function TaskMaterials({ task }: { task: Task }) {
     reload()
   }
 
-  const handleDelete = (id: string) => {
-    deleteSupply(id)
+  const handleDelete = async (id: string) => {
+    await deleteSupply(id)
     reload()
   }
 
@@ -87,21 +87,19 @@ function TaskMaterials({ task }: { task: Task }) {
     setEditQty(s.plannedQty.toString())
   }
 
-  const saveEdit = (s: SupplyItem) => {
-    updateSupply({ ...s, plannedQty: parseFloat(editQty) || 0 })
+  const saveEdit = async (s: SupplyItem) => {
+    await updateSupply({ ...s, plannedQty: parseFloat(editQty) || 0 })
     setEditingId(null)
     reload()
   }
 
-  // Descontar unidades del stock actual
-  const handleUse = (s: SupplyItem) => {
+  const handleUse = async (s: SupplyItem) => {
     const amount = parseFloat(useAmounts[s.id] || "0") || 0
     if (amount <= 0) return
     const current = s.currentStock ?? 0
     const newStock = Math.max(0, current - amount)
-    updateSupplyCurrentStock(s.id, newStock)
-    // También suma al realQty
-    updateSupply({ ...s, realQty: (s.realQty ?? 0) + amount, currentStock: newStock })
+    await updateSupplyCurrentStock(s.id, newStock)
+    await updateSupply({ ...s, realQty: (s.realQty ?? 0) + amount, currentStock: newStock })
     setUseAmounts((prev) => ({ ...prev, [s.id]: "" }))
     reload()
   }
@@ -279,21 +277,21 @@ export function TaskCard({ task, currentUserId, currentUserRole }: TaskCardProps
   const [photoCaption, setPhotoCaption] = useState("")
   const obsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleStatus = (s: TaskStatus) => {
+  const handleStatus = async (s: TaskStatus) => {
     setStatus(s)
-    updateTaskStatus(task.id, s)
+    await updateTaskStatus(task.id, s)
   }
 
   const handleObs = (val: string) => {
     setObs(val)
     if (obsTimer.current) clearTimeout(obsTimer.current)
-    obsTimer.current = setTimeout(() => updateTaskObservations(task.id, val), 600)
+    obsTimer.current = setTimeout(() => { updateTaskObservations(task.id, val) }, 600)
   }
 
-  const handleAddPhoto = () => {
+  const handleAddPhoto = async () => {
     if (!photoUrl.trim()) return
     const who = currentUserId ?? "user"
-    const newPhoto = addPhotoToTask(task.id, task.stageId, photoUrl.trim(), photoCaption, who)
+    const newPhoto = await addPhotoToTask(task.id, task.stageId, photoUrl.trim(), photoCaption, who)
     setPhotos((p) => [...p, newPhoto])
     setPhotoUrl("")
     setPhotoCaption("")

@@ -1,8 +1,8 @@
 "use client"
 
-import React, { useCallback, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import { getPurchases, getStages, updatePurchaseStatus } from "@/lib/mock-db"
-import { PurchaseScheduleItem } from "@/types/project"
+import { PurchaseScheduleItem, Stage } from "@/types/project"
 import { LogisticaEditor } from "@/features/import/components/logistica-editor"
 
 const STATUS_LABEL: Record<PurchaseScheduleItem["status"], string> = {
@@ -22,17 +22,19 @@ const STATUS_BADGE: Record<PurchaseScheduleItem["status"], string> = {
 const CURRENT_WEEK = 10 // Semana simulada actual del proyecto
 
 export default function LogisticsPage() {
-  const [mounted, setMounted]       = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [showForm, setShowForm]     = useState(false)
+  const [purchases, setPurchases]   = useState<PurchaseScheduleItem[]>([])
+  const [stages, setStages]         = useState<Stage[]>([])
 
-  React.useEffect(() => { setMounted(true) }, [])
-
-  const allPurchases = useMemo(() => mounted ? getPurchases() : [], [refreshKey, mounted])
-  const stages       = useMemo(() => mounted ? getStages()    : [], [refreshKey, mounted])
-  const [purchases, setPurchases] = useState<PurchaseScheduleItem[]>([])
-
-  React.useEffect(() => { if (mounted) setPurchases(getPurchases()) }, [refreshKey, mounted])
+  useEffect(() => {
+    async function load() {
+      const [p, s] = await Promise.all([getPurchases(), getStages()])
+      setPurchases(p)
+      setStages(s)
+    }
+    load()
+  }, [refreshKey])
 
   const stageMap = useMemo(
     () => Object.fromEntries(stages.map((s) => [s.id, s])),
@@ -45,8 +47,8 @@ export default function LogisticsPage() {
   )
   const allPending = purchases.filter((p) => p.status !== "delivered")
 
-  const handleStatus = (id: string, status: PurchaseScheduleItem["status"]) => {
-    updatePurchaseStatus(id, status)
+  const handleStatus = async (id: string, status: PurchaseScheduleItem["status"]) => {
+    await updatePurchaseStatus(id, status)
     setPurchases((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
   }
 
@@ -57,8 +59,6 @@ export default function LogisticsPage() {
 
   const fmt = (n: number) =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n)
-
-  if (!mounted) return null
 
   return (
     <div className="page-wrap space-y-6">
