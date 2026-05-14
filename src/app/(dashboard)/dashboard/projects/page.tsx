@@ -7,6 +7,7 @@ import {
   setActiveProjectId, getActiveProjectId, approveJoinRequest,
   rejectJoinRequest, updateMemberRole, removeMember,
   getProjectMembers, getJoinRequests, deleteProject,
+  getProjectByInviteCode, submitJoinRequest,
 } from "@/lib/projects-db"
 import { Project, UserRole, JoinRequest, ProjectMember } from "@/types/project"
 
@@ -33,14 +34,11 @@ function fmtDate(iso: string) {
 
 // ─── Copy-to-clipboard helper ─────────────────────────────────────────────────
 
-function InviteCodeBox({ code }: { code: string }) {
+function InviteSection({ code }: { code: string }) {
   const [copied, setCopied] = useState(false)
-  const link = typeof window !== "undefined"
-    ? `${window.location.origin}/dashboard/projects/invite/${code}`
-    : ""
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(link).then(() => {
+    navigator.clipboard.writeText(code).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
@@ -48,13 +46,125 @@ function InviteCodeBox({ code }: { code: string }) {
 
   return (
     <div className="proj-invite-box">
-      <p className="proj-invite-label">Link de invitación</p>
+      <p className="proj-invite-label">Invitar colaboradores</p>
+      <p className="text-xs text-stone-500 mb-2">
+        Compartí este código para que otros puedan unirse desde "Colaborar en un proyecto".
+      </p>
       <div className="proj-invite-row">
-        <code className="proj-invite-code">{code}</code>
+        <code className="proj-invite-code text-lg tracking-widest font-bold">{code}</code>
         <button type="button" className="proj-invite-copy-btn" onClick={handleCopy}>
-          {copied ? "✓ Copiado" : "Copiar link"}
+          {copied ? "✓ Copiado" : "Copiar código"}
         </button>
       </div>
+    </div>
+  )
+}
+
+// ─── Colaborar form ───────────────────────────────────────────────────────────
+
+function ColaborarForm({
+  userName, userEmail, onDone,
+}: { userName: string; userEmail: string; onDone: () => void }) {
+  const [code, setCode]         = useState("")
+  const [found, setFound]       = useState<Project | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [sending, setSending]   = useState(false)
+  const [sent, setSent]         = useState(false)
+  const [error, setError]       = useState("")
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!code.trim()) return
+    setSearching(true)
+    setError("")
+    setFound(null)
+    try {
+      const proj = await getProjectByInviteCode(code.trim().toUpperCase())
+      if (!proj) { setError("Código inválido. Verificá que esté bien escrito."); return }
+      setFound(proj)
+    } catch {
+      setError("Error al buscar el proyecto.")
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const handleJoin = async () => {
+    if (!found) return
+    setSending(true)
+    setError("")
+    try {
+      const members = await getProjectMembers(found.id)
+      if (members.some((m) => m.email === userEmail)) {
+        setError("Ya sos colaborador de este proyecto.")
+        return
+      }
+      const reqs = await getJoinRequests(found.id)
+      if (reqs.some((r) => r.email === userEmail && r.status === "pending")) {
+        setError("Ya tenés una solicitud pendiente para este proyecto.")
+        return
+      }
+      await submitJoinRequest(found.id, userName, userEmail)
+      setSent(true)
+      onDone()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al enviar la solicitud.")
+    } finally {
+      setSending(false)
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="card-obra p-5 flex items-center gap-3">
+        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+          <svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <p className="text-sm text-stone-700 font-medium">
+          Solicitud enviada. El propietario de <strong>{found?.name}</strong> revisará tu pedido.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="card-obra p-5 space-y-4">
+      <h3 className="section-title">Colaborar en un proyecto</h3>
+
+      {!found ? (
+        <form onSubmit={handleSearch} className="flex gap-2">
+          <input
+            className="proj-form-input flex-1"
+            placeholder="Código de invitación (ej: INV-AB12CD)"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            autoComplete="off"
+          />
+          <button type="submit" className="proj-btn-primary" disabled={searching}>
+            {searching ? "Buscando…" : "Buscar"}
+          </button>
+        </form>
+      ) : (
+        <div className="space-y-3">
+          <div className="bg-stone-50 rounded-lg p-4 border border-stone-100">
+            <p className="text-xs text-stone-400 uppercase tracking-wide mb-1">Proyecto encontrado</p>
+            <p className="font-semibold text-stone-900">{found.name}</p>
+            <p className="text-sm text-stone-500">{found.address} · Cliente: {found.client}</p>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className="proj-btn-primary" onClick={handleJoin} disabled={sending}>
+              {sending ? "Enviando…" : "Solicitar acceso"}
+            </button>
+            <button type="button" className="proj-btn-ghost" onClick={() => { setFound(null); setCode("") }}>
+              Volver
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
     </div>
   )
 }
@@ -261,16 +371,16 @@ function DeleteProjectModal({
 type ProjectData = { project: Project; members: ProjectMember[]; joinRequests: JoinRequest[] }
 
 function ProjectCard({
-  data, isActive, currentUserRole, onSwitch, onAction,
+  data, isActive, currentUserId, onSwitch, onAction,
 }: {
   data: ProjectData
   isActive: boolean
-  currentUserRole: UserRole
+  currentUserId: string
   onSwitch: () => void
   onAction: () => void
 }) {
   const { project, members, joinRequests } = data
-  const isOwner = currentUserRole === "owner"
+  const isOwner = members.some((m) => m.userId === currentUserId && m.role === "owner")
   const [expanded, setExpanded] = useState(isActive)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
 
@@ -359,9 +469,9 @@ function ProjectCard({
       {/* Expanded */}
       {expanded && (
         <div className="proj-card-body">
-          {/* Invite code — solo owner */}
+          {/* Invitar colaboradores — solo owner */}
           {isOwner && project.inviteCode && (
-            <InviteCodeBox code={project.inviteCode} />
+            <InviteSection code={project.inviteCode} />
           )}
 
           {/* Solicitudes de ingreso — solo owner */}
@@ -455,11 +565,11 @@ export default function ProjectsPage() {
   const [mounted, setMounted] = useState(false)
   const [projectsData, setProjectsData] = useState<ProjectData[]>([])
   const [activeId, setActiveId] = useState("")
-  const [currentUserRole, setCurrentUserRole] = useState<UserRole>("supervisor")
-  const [currentUserId, setCurrentUserId]     = useState("")
-  const [currentUserName, setCurrentUserName] = useState("")
+  const [currentUserId, setCurrentUserId]       = useState("")
+  const [currentUserName, setCurrentUserName]   = useState("")
   const [currentUserEmail, setCurrentUserEmail] = useState("")
-  const [showNewForm, setShowNewForm] = useState(false)
+  const [showNewForm, setShowNewForm]           = useState(false)
+  const [showColaborar, setShowColaborar]       = useState(false)
 
   const reload = useCallback(async () => {
     const projects = await getAllProjects()
@@ -489,12 +599,11 @@ export default function ProjectsPage() {
         setCurrentUserEmail(user.email ?? "")
         const { data: profile } = await supabase
           .from("profiles")
-          .select("name, role")
+          .select("name")
           .eq("id", user.id)
           .single()
         if (profile) {
           setCurrentUserName((profile.name as string) ?? "")
-          setCurrentUserRole((profile.role as UserRole) ?? "supervisor")
         }
       }
     }
@@ -511,7 +620,6 @@ export default function ProjectsPage() {
 
   if (!mounted) return null
 
-  const isOwner = currentUserRole === "owner"
   const activeProject = projectsData.find((d) => d.project.id === activeId)?.project
 
   return (
@@ -525,27 +633,39 @@ export default function ProjectsPage() {
         </p>
       </div>
 
-      {/* Botón nuevo proyecto — owners o si no tiene proyectos todavía */}
-      {(isOwner || projectsData.length === 0) && (
-        <div>
-          <button
-            type="button"
-            className="proj-btn-primary"
-            onClick={() => setShowNewForm((v) => !v)}
-          >
-            {showNewForm ? "Cancelar" : "+ Nuevo proyecto"}
-          </button>
-          {showNewForm && (
-            <div className="mt-4">
-              <NewProjectForm
-                userId={currentUserId}
-                userName={currentUserName}
-                userEmail={currentUserEmail}
-                onCreated={() => { setShowNewForm(false); reload() }}
-              />
-            </div>
-          )}
-        </div>
+      {/* Acciones principales */}
+      <div className="flex gap-3 flex-wrap">
+        <button
+          type="button"
+          className="proj-btn-primary"
+          onClick={() => { setShowNewForm((v) => !v); setShowColaborar(false) }}
+        >
+          {showNewForm ? "Cancelar" : "+ Nuevo proyecto"}
+        </button>
+        <button
+          type="button"
+          className="proj-btn-ghost"
+          onClick={() => { setShowColaborar((v) => !v); setShowNewForm(false) }}
+        >
+          {showColaborar ? "Cancelar" : "Colaborar en un proyecto"}
+        </button>
+      </div>
+
+      {showNewForm && (
+        <NewProjectForm
+          userId={currentUserId}
+          userName={currentUserName}
+          userEmail={currentUserEmail}
+          onCreated={() => { setShowNewForm(false); reload() }}
+        />
+      )}
+
+      {showColaborar && (
+        <ColaborarForm
+          userName={currentUserName}
+          userEmail={currentUserEmail}
+          onDone={reload}
+        />
       )}
 
       {/* Lista de proyectos */}
@@ -555,7 +675,7 @@ export default function ProjectsPage() {
             key={data.project.id}
             data={data}
             isActive={data.project.id === activeId}
-            currentUserRole={currentUserRole}
+            currentUserId={currentUserId}
             onSwitch={() => handleSwitch(data.project.id)}
             onAction={reload}
           />
