@@ -106,42 +106,21 @@ export async function createProject(
   _creatorUserId: string,
 ): Promise<Project> {
   const supabase = createClient()
-
-  // Siempre usamos el usuario autenticado real, nunca el parámetro
-  const { data: { user }, error: authError } = await supabase.auth.getUser()
-  if (authError || !user) throw new Error("No autenticado")
-
   const inviteCode = "INV-" + Math.random().toString(36).slice(2, 8).toUpperCase()
 
-  const { data, error } = await supabase
-    .from("projects")
-    .insert({
-      name,
-      address,
-      client,
-      start_date: startDate,
-      budget_estimated: budgetEstimated,
-      budget_real: 0,
-      status: "planning",
-      invite_code: inviteCode,
-      created_by: user.id,
-    })
-    .select()
-    .single()
-
-  if (error) throw new Error(error.message)
-
-  const { error: memberError } = await supabase.from("project_members").insert({
-    project_id: data.id,
-    user_id: user.id,
-    name: creatorName || user.email || "",
-    email: creatorEmail || user.email || "",
-    role: "owner",
+  const { data, error } = await supabase.rpc("create_project_for_user", {
+    p_name:             name,
+    p_address:          address,
+    p_client:           client,
+    p_start_date:       startDate,
+    p_budget_estimated: budgetEstimated,
+    p_creator_name:     creatorName,
+    p_creator_email:    creatorEmail,
+    p_invite_code:      inviteCode,
   })
 
-  if (memberError) throw new Error(memberError.message)
-
-  return mapProject(data)
+  if (error) throw new Error(error.message)
+  return mapProject(data as Record<string, unknown>)
 }
 
 export async function finalizeProject(projectId: string): Promise<void> {
