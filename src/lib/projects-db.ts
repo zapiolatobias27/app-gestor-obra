@@ -141,8 +141,11 @@ export async function reopenProject(projectId: string): Promise<void> {
 
 export async function getProjectByInviteCode(code: string): Promise<Project | null> {
   const supabase = createClient()
-  // Bypasses RLS via SECURITY DEFINER so non-members can see the project by invite code
-  const { data } = await supabase.rpc("get_project_by_invite_code", { p_code: code })
+  const { data, error } = await supabase.rpc("get_project_by_invite_code", { p_code: code })
+  if (error) {
+    // RPC doesn't exist yet — throw so the UI shows a clear setup message
+    throw new Error("SETUP_REQUIRED")
+  }
   const row = Array.isArray(data) ? (data[0] ?? null) : null
   return row ? mapProject(row as Record<string, unknown>) : null
 }

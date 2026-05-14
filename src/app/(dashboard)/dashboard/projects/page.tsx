@@ -82,8 +82,13 @@ function ColaborarForm({
       const proj = await getProjectByInviteCode(code.trim().toUpperCase())
       if (!proj) { setError("Código inválido. Verificá que esté bien escrito."); return }
       setFound(proj)
-    } catch {
-      setError("Error al buscar el proyecto.")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : ""
+      if (msg === "SETUP_REQUIRED") {
+        setError("Falta configurar Supabase. Corré el SQL del paso de abajo.")
+      } else {
+        setError("Error al buscar el proyecto.")
+      }
     } finally {
       setSearching(false)
     }
