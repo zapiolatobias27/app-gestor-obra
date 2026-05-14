@@ -147,3 +147,17 @@ export interface BudgetMovement {
   date: string          // ISO datetime
   purchaseRequestId?: string
 }
+
+export interface Invoice {
+  id: string
+  projectId: string
+  supplier: string
+  description: string
+  amount: number
+  date: string              // YYYY-MM-DD
+  dueDate?: string          // YYYY-MM-DD
+  status: "pending" | "paid" | "overdue"
+  invoiceNumber?: string
+  photoUrl?: string
+  notes?: string
+}

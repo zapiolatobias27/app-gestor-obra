@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client"
 import { getActiveProjectId } from "./projects-db"
-import type { Project, Stage, Task, Photo, PurchaseScheduleItem, DailyBudgetEntry, PurchaseRequest, BudgetMovement, CalendarEvent } from "@/types/project"
+import type { Project, Stage, Task, Photo, PurchaseScheduleItem, DailyBudgetEntry, PurchaseRequest, BudgetMovement, CalendarEvent, Invoice } from "@/types/project"
 import type { SupplyItem, AuditAlert } from "@/types/stock"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -752,4 +752,81 @@ export async function addDeliveryCalendarEvent(supplyId: string, buyDateStr: str
 export async function resetDB(): Promise<void> {
   if (typeof window === "undefined") return
   localStorage.removeItem("obra:active-project")
+}
+
+// ─── Invoices ─────────────────────────────────────────────────────────────────
+
+function mapInvoice(r: Record<string, unknown>): Invoice {
+  return {
+    id: r.id as string,
+    projectId: r.project_id as string,
+    supplier: r.supplier as string,
+    description: r.description as string,
+    amount: r.amount as number,
+    date: r.date as string,
+    dueDate: (r.due_date as string | null) ?? undefined,
+    status: r.status as Invoice["status"],
+    invoiceNumber: (r.invoice_number as string | null) ?? undefined,
+    photoUrl: (r.photo_url as string | null) ?? undefined,
+    notes: (r.notes as string | null) ?? undefined,
+  }
+}
+
+export async function getInvoices(): Promise<Invoice[]> {
+  const supabase = createClient()
+  const pid = projectId()
+  if (!pid) return []
+  const { data } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("project_id", pid)
+    .order("date", { ascending: false })
+  return (data ?? []).map(mapInvoice)
+}
+
+export async function addInvoice(invoice: Invoice): Promise<void> {
+  const supabase = createClient()
+  const pid = projectId()
+  const { error } = await supabase.from("invoices").insert({
+    id: invoice.id,
+    project_id: pid,
+    supplier: invoice.supplier,
+    description: invoice.description,
+    amount: invoice.amount,
+    date: invoice.date,
+    due_date: invoice.dueDate ?? null,
+    status: invoice.status,
+    invoice_number: invoice.invoiceNumber ?? null,
+    photo_url: invoice.photoUrl ?? null,
+    notes: invoice.notes ?? null,
+  })
+  if (error) throw new Error(error.message)
+}
+
+export async function updateInvoice(invoice: Invoice): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from("invoices").update({
+    supplier: invoice.supplier,
+    description: invoice.description,
+    amount: invoice.amount,
+    date: invoice.date,
+    due_date: invoice.dueDate ?? null,
+    status: invoice.status,
+    invoice_number: invoice.invoiceNumber ?? null,
+    photo_url: invoice.photoUrl ?? null,
+    notes: invoice.notes ?? null,
+  }).eq("id", invoice.id)
+  if (error) throw new Error(error.message)
+}
+
+export async function updateInvoiceStatus(id: string, status: Invoice["status"]): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from("invoices").update({ status }).eq("id", id)
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteInvoice(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from("invoices").delete().eq("id", id)
+  if (error) throw new Error(error.message)
 }

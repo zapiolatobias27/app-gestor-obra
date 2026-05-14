@@ -62,6 +62,16 @@ function IconTruck() {
   )
 }
 
+function IconReceipt() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="1.5" width="12" height="11" rx="1" fill="currentColor" opacity=".4" />
+      <path d="M2 12.5L3.5 11L5 12.5L6.5 11L8 12.5L9.5 11L11 12.5L12.5 11L14 12.5V13.5H2V12.5Z" fill="currentColor" opacity=".7" />
+      <path d="M5 5H11M5 7.5H9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function IconImage() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -128,6 +138,7 @@ const FULL_ACCESS_NAV: NavItem[] = [
   { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,   section: "Obra" },
   { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,  section: "Obra" },
   { label: "Logística",  href: "/dashboard/logistics",  icon: <IconTruck />,    section: "Obra" },
+  { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,  section: "Obra" },
   { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />, section: "Obra" },
   { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,    section: "Registro" },
   { label: "Importar",   href: "/dashboard/import",     icon: <IconUpload />,   section: "Admin" },
