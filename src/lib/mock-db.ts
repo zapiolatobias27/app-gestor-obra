@@ -580,28 +580,32 @@ export async function getBudgetMovements(): Promise<BudgetMovement[]> {
 export async function bulkImportData(stages: Stage[], tasks: Task[], supplies: SupplyItem[]): Promise<void> {
   const supabase = createClient()
   const pid = projectId()
+  if (!pid) throw new Error("No hay un proyecto activo. Creá o seleccioná un proyecto antes de importar.")
 
   if (stages.length > 0) {
-    await supabase.from("stages").insert(stages.map((s) => ({
+    const { error } = await supabase.from("stages").insert(stages.map((s) => ({
       id: s.id, project_id: pid, name: s.name, code: s.code, order: s.order,
       status: s.status, week_start: s.weekStart, week_end: s.weekEnd,
       estimated_days: s.estimatedDays, estimated_cost: s.estimatedCost,
     })))
+    if (error) throw new Error(`Error al importar etapas: ${error.message}`)
   }
   if (tasks.length > 0) {
-    await supabase.from("tasks").insert(tasks.map((t) => ({
+    const { error } = await supabase.from("tasks").insert(tasks.map((t) => ({
       id: t.id, stage_id: t.stageId, category: t.category, title: t.title,
       status: t.status, responsible_role: t.responsibleRole,
       week_start: t.weekStart, week_end: t.weekEnd,
     })))
+    if (error) throw new Error(`Error al importar tareas: ${error.message}`)
   }
   if (supplies.length > 0) {
-    await supabase.from("supply_items").insert(supplies.map((s) => ({
+    const { error } = await supabase.from("supply_items").insert(supplies.map((s) => ({
       id: s.id, stage_id: s.stageId, task_id: s.taskId, name: s.name,
       unit: s.unit, planned_qty: s.plannedQty, real_qty: s.realQty,
       estimated_unit_cost: s.estimatedUnitCost,
       auto_discount_on_complete: s.autoDiscountOnComplete ?? false,
     })))
+    if (error) throw new Error(`Error al importar insumos: ${error.message}`)
   }
 }
 
