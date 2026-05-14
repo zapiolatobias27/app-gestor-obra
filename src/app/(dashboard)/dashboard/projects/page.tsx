@@ -414,8 +414,8 @@ export default function ProjectsPage() {
         </p>
       </div>
 
-      {/* Botón nuevo proyecto — solo owners */}
-      {isOwner && (
+      {/* Botón nuevo proyecto — owners o si no tiene proyectos todavía */}
+      {(isOwner || projectsData.length === 0) && (
         <div>
           <button
             type="button"
