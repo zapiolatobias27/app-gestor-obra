@@ -3,19 +3,6 @@
 import React, { useState } from "react"
 import { useRouter } from "next/navigation"
 import { signIn, signUp } from "@/lib/auth-client"
-import type { UserRole } from "@/types/user"
-
-const ROLE_LABEL: Record<UserRole, string> = {
-  owner: "Propietario",
-  architect: "Arquitecto",
-  supervisor: "Encargado de Obra",
-}
-
-const ROLE_DESC: Record<UserRole, string> = {
-  owner: "Visualización completa del proyecto",
-  architect: "Gestión total + importación de datos",
-  supervisor: "Gestión de tareas y registro fotográfico",
-}
 
 export function LoginForm() {
   const router = useRouter()
@@ -23,7 +10,6 @@ export function LoginForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [name, setName] = useState("")
-  const [role, setRole] = useState<UserRole>("supervisor")
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -37,7 +23,7 @@ export function LoginForm() {
         await signIn(email, password)
       } else {
         if (!name.trim()) { setError("Ingresá tu nombre"); return }
-        await signUp(email, password, name, role)
+        await signUp(email, password, name)
       }
       router.push("/dashboard")
       router.refresh()
@@ -152,23 +138,6 @@ export function LoginForm() {
               </div>
             </div>
 
-            {/* Rol (solo registro) */}
-            {mode === "register" && (
-              <div>
-                <label htmlFor="role-select" className="login-label">Rol en la obra</label>
-                <select
-                  id="role-select"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as UserRole)}
-                  className="login-input"
-                >
-                  {(Object.keys(ROLE_LABEL) as UserRole[]).map((r) => (
-                    <option key={r} value={r}>{ROLE_LABEL[r]}</option>
-                  ))}
-                </select>
-                <p className="login-hint">{ROLE_DESC[role]}</p>
-              </div>
-            )}
 
             <button type="submit" disabled={loading} className="login-btn">
               {loading

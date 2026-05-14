@@ -1,7 +1,6 @@
 "use client"
 
 import { createClient } from "@/lib/supabase/client"
-import type { UserRole } from "@/types/user"
 
 export async function signIn(email: string, password: string) {
   const supabase = createClient()
@@ -9,7 +8,7 @@ export async function signIn(email: string, password: string) {
   if (error) throw new Error(error.message)
 }
 
-export async function signUp(email: string, password: string, name: string, role: UserRole) {
+export async function signUp(email: string, password: string, name: string) {
   const supabase = createClient()
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -18,7 +17,7 @@ export async function signUp(email: string, password: string, name: string, role
   })
   if (error) throw new Error(error.message)
   if (data.user) {
-    await supabase.from("profiles").update({ name, role }).eq("id", data.user.id)
+    await supabase.from("profiles").update({ name }).eq("id", data.user.id)
   }
 }
 

@@ -2,13 +2,6 @@
 
 import React, { useEffect, useRef, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { UserRole } from "@/types/user"
-
-const ROLE_LABEL: Record<UserRole, string> = {
-  owner: "Propietario",
-  architect: "Arquitecto",
-  supervisor: "Encargado de Obra",
-}
 
 interface ProfileForm {
   name: string
@@ -16,13 +9,12 @@ interface ProfileForm {
   address: string
   bio: string
   birthDate: string
-  role: UserRole
 }
 
 export default function ProfilePage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [form, setForm] = useState<ProfileForm>({
-    name: "", phone: "", address: "", bio: "", birthDate: "", role: "supervisor",
+    name: "", phone: "", address: "", bio: "", birthDate: "",
   })
   const [email, setEmail] = useState("")
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>()
@@ -47,7 +39,6 @@ export default function ProfilePage() {
           address:   profile.address ?? "",
           bio:       profile.bio ?? "",
           birthDate: profile.birth_date ?? "",
-          role:      (profile.role as UserRole) ?? "supervisor",
         })
         setAvatarUrl(profile.avatar_url ?? undefined)
       }
@@ -187,8 +178,8 @@ export default function ProfilePage() {
           </label>
           <div className="block text-sm md:col-span-2">
             <span className="text-stone-700">Rol</span>
-            <p className="mt-1 px-2 py-1.5 bg-stone-50 border border-stone-200 rounded text-stone-600">
-              {ROLE_LABEL[form.role]}
+            <p className="mt-1 px-2 py-1.5 bg-stone-50 border border-stone-200 rounded text-stone-500 text-xs">
+              Tu rol depende del proyecto activo. Podés verlo en la sección Proyectos.
             </p>
           </div>
         </div>

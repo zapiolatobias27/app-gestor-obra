@@ -21,6 +21,7 @@ import {
   getProjectStageSummary,
 } from "@/lib/mock-db"
 import { TaskStatus, UserRole, PurchaseRequest, BudgetMovement } from "@/types/project"
+import { getActiveProjectId } from "@/lib/projects-db"
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   pending: "Pendiente",
@@ -414,9 +415,18 @@ export default function DashboardPage() {
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        const { data: profile } = await supabase.from("profiles").select("name, role").eq("id", user.id).single()
-        setRole((profile?.role as UserRole) ?? "supervisor")
+        const { data: profile } = await supabase.from("profiles").select("name").eq("id", user.id).single()
         setUserName(profile?.name ?? "Usuario")
+        const pid = getActiveProjectId()
+        if (pid) {
+          const { data: member } = await supabase
+            .from("project_members")
+            .select("role")
+            .eq("user_id", user.id)
+            .eq("project_id", pid)
+            .single()
+          setRole((member?.role as UserRole) ?? "supervisor")
+        }
       }
       const proj = await getProject()
       if (!proj) {

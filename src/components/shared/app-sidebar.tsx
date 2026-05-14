@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { UserRole } from "@/types/user"
 import { createClient } from "@/lib/supabase/client"
 import { signOut } from "@/lib/auth-client"
+import { getActiveProjectId } from "@/lib/projects-db"
 
 const ROLE_LABEL: Record<UserRole, string> = {
   owner: "Propietario",
@@ -176,13 +177,26 @@ export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
       setUserEmail(user.email ?? "")
-      const { data: profile } = await supabase.from("profiles").select("name, role").eq("id", user.id).single()
-      if (profile) {
-        setUserName(profile.name ?? "")
-        setRole((profile.role as UserRole) ?? "supervisor")
-      }
+      const { data: profile } = await supabase.from("profiles").select("name").eq("id", user.id).single()
+      if (profile) setUserName(profile.name ?? "")
     })
   }, [])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      const pid = getActiveProjectId()
+      if (!pid) return
+      const { data: member } = await supabase
+        .from("project_members")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("project_id", pid)
+        .single()
+      setRole((member?.role as UserRole) ?? "supervisor")
+    })
+  }, [pathname])
 
   // Close sidebar on route change (mobile)
   useEffect(() => { onClose() }, [pathname, onClose])
