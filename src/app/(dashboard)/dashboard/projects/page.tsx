@@ -6,7 +6,7 @@ import {
   getAllProjects, createProject, finalizeProject, reopenProject,
   setActiveProjectId, getActiveProjectId, approveJoinRequest,
   rejectJoinRequest, updateMemberRole, removeMember,
-  getProjectMembers, getJoinRequests,
+  getProjectMembers, getJoinRequests, deleteProject,
 } from "@/lib/projects-db"
 import { Project, UserRole, JoinRequest, ProjectMember } from "@/types/project"
 
@@ -163,6 +163,99 @@ function MemberRow({
   )
 }
 
+// ─── Delete confirmation modal ────────────────────────────────────────────────
+
+function DeleteProjectModal({
+  projectName,
+  onConfirm,
+  onCancel,
+}: {
+  projectName: string
+  onConfirm: () => Promise<void>
+  onCancel: () => void
+}) {
+  const [input, setInput] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const expected = `Eliminar_${projectName}`
+  const matches = input === expected
+
+  const handleConfirm = async () => {
+    if (!matches) return
+    setLoading(true)
+    try {
+      await onConfirm()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al eliminar")
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-stone-900">Eliminar proyecto</h2>
+            <p className="text-sm text-stone-500">Esta acción no se puede deshacer.</p>
+          </div>
+        </div>
+
+        <p className="text-sm text-stone-700">
+          Se eliminarán permanentemente el proyecto, todas sus etapas, tareas, insumos y compras.
+        </p>
+
+        <div className="space-y-1.5">
+          <p className="text-sm text-stone-600">
+            Para confirmar, escribí exactamente:
+          </p>
+          <code className="block text-sm font-mono bg-stone-100 rounded-lg px-3 py-2 text-red-700 select-all">
+            {expected}
+          </code>
+          <input
+            className="proj-form-input mt-2"
+            placeholder={expected}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onPaste={(e) => e.preventDefault()}
+            autoComplete="off"
+            autoFocus
+          />
+        </div>
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={!matches || loading}
+            className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              matches
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "bg-stone-200 text-stone-400 cursor-not-allowed"
+            }`}
+          >
+            {loading ? "Eliminando…" : "Eliminar definitivamente"}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 py-2 rounded-lg text-sm font-semibold bg-stone-100 text-stone-700 hover:bg-stone-200 transition-colors"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Project card ─────────────────────────────────────────────────────────────
 
 type ProjectData = { project: Project; members: ProjectMember[]; joinRequests: JoinRequest[] }
@@ -179,6 +272,7 @@ function ProjectCard({
   const { project, members, joinRequests } = data
   const isOwner = currentUserRole === "owner"
   const [expanded, setExpanded] = useState(isActive)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   const pendingRequests = joinRequests.filter((r) => r.status === "pending")
 
@@ -242,8 +336,25 @@ function ProjectCard({
               Reabrir proyecto
             </button>
           )}
+          {isOwner && (
+            <button type="button" className="proj-btn-danger-sm" onClick={() => setShowDeleteModal(true)}>
+              Eliminar proyecto
+            </button>
+          )}
         </div>
       </div>
+
+      {showDeleteModal && (
+        <DeleteProjectModal
+          projectName={project.name}
+          onCancel={() => setShowDeleteModal(false)}
+          onConfirm={async () => {
+            await deleteProject(project.id)
+            setShowDeleteModal(false)
+            onAction()
+          }}
+        />
+      )}
 
       {/* Expanded */}
       {expanded && (

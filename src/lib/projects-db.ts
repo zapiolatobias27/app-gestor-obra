@@ -194,5 +194,11 @@ export async function removeMember(projectId: string, userId: string): Promise<v
   await supabase.from("project_members").delete().eq("project_id", projectId).eq("user_id", userId)
 }
 
+export async function deleteProject(projectId: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.rpc("delete_project_for_owner", { p_project_id: projectId })
+  if (error) throw new Error(error.message)
+}
+
 // Tipo exportado para compatibilidad con código existente
 export type { Project as ProjectBlob }
