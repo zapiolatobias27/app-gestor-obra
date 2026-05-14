@@ -28,11 +28,11 @@ function Chevron({ open }: { open: boolean }): React.ReactElement {
   )
 }
 
-export function StockEditor({ onSaved }: { onSaved?: () => void }) {
+export function StockEditor({ onSaved, initialSelectedId }: { onSaved?: () => void; initialSelectedId?: string }) {
   const [stages, setStages]     = useState<Stage[]>([])
   const [tasks, setTasks]       = useState<Task[]>([])
   const [supplies, setSupplies] = useState<SupplyItem[]>([])
-  const [selectedId, setSelectedId] = useState<string>(NEW)
+  const [selectedId, setSelectedId] = useState<string>(initialSelectedId ?? NEW)
   const [form, setForm] = useState<SupplyItem>(empty())
   const [toast, setToast] = useState("")
   const [showExtra, setShowExtra] = useState(false)

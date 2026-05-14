@@ -11,6 +11,8 @@ interface StockTableProps {
   stages?: Stage[]
   tasks?: Task[]
   onUpdate?: () => void
+  onEdit?: (supply: SupplyItem) => void
+  onDelete?: (supply: SupplyItem) => void
 }
 
 const SEVERITY_ROW: Record<"low" | "medium" | "high", string> = {
@@ -25,7 +27,7 @@ const SEVERITY_BADGE: Record<"low" | "medium" | "high", string> = {
   high:   "badge-blocked",
 }
 
-export function StockTable({ supplies, stages = [], tasks = [], onUpdate }: StockTableProps) {
+export function StockTable({ supplies, stages = [], tasks = [], onUpdate, onEdit, onDelete }: StockTableProps) {
   const [editingId, setEditingId]         = useState<string | null>(null)
   const [editValue, setEditValue]         = useState<number>(0)
   const [editingStockId, setEditingStockId] = useState<string | null>(null)
@@ -54,6 +56,7 @@ export function StockTable({ supplies, stages = [], tasks = [], onUpdate }: Stoc
               <th className="stock-th text-right hidden lg:table-cell">Stock actual</th>
               <th className="stock-th text-right">Desvío</th>
               <th className="stock-th text-center hidden md:table-cell">Sev.</th>
+              {(onEdit || onDelete) && <th className="stock-th" />}
             </tr>
           </thead>
           <tbody className="stock-tbody">
@@ -140,6 +143,18 @@ export function StockTable({ supplies, stages = [], tasks = [], onUpdate }: Stoc
                       </span>
                     )}
                   </td>
+                  {(onEdit || onDelete) && (
+                    <td className="stock-td">
+                      <div className="flex gap-1 justify-end">
+                        {onEdit && (
+                          <button type="button" className="proj-btn-ghost-sm" onClick={() => onEdit(supply)}>Editar</button>
+                        )}
+                        {onDelete && (
+                          <button type="button" className="proj-btn-danger-sm" onClick={() => onDelete(supply)}>Eliminar</button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               )
             })}

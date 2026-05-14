@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useState } from "react"
-import { getPurchases, getStages, updatePurchaseStatus } from "@/lib/mock-db"
+import { getPurchases, getStages, updatePurchaseStatus, deletePurchase } from "@/lib/mock-db"
 import { PurchaseScheduleItem, Stage } from "@/types/project"
 import { LogisticaEditor } from "@/features/import/components/logistica-editor"
 
@@ -22,10 +22,11 @@ const STATUS_BADGE: Record<PurchaseScheduleItem["status"], string> = {
 const CURRENT_WEEK = 10 // Semana simulada actual del proyecto
 
 export default function LogisticsPage() {
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [showForm, setShowForm]     = useState(false)
-  const [purchases, setPurchases]   = useState<PurchaseScheduleItem[]>([])
-  const [stages, setStages]         = useState<Stage[]>([])
+  const [refreshKey, setRefreshKey]       = useState(0)
+  const [showForm, setShowForm]           = useState(false)
+  const [editingPurchase, setEditingPurchase] = useState<PurchaseScheduleItem | null>(null)
+  const [purchases, setPurchases]         = useState<PurchaseScheduleItem[]>([])
+  const [stages, setStages]               = useState<Stage[]>([])
 
   useEffect(() => {
     async function load() {
@@ -52,9 +53,22 @@ export default function LogisticsPage() {
     setPurchases((prev) => prev.map((p) => (p.id === id ? { ...p, status } : p)))
   }
 
+  const handleDelete = async (purchase: PurchaseScheduleItem) => {
+    if (!confirm(`¿Eliminar "${purchase.material}"?`)) return
+    await deletePurchase(purchase.id)
+    setRefreshKey((k) => k + 1)
+  }
+
+  const handleEdit = (purchase: PurchaseScheduleItem) => {
+    setShowForm(false)
+    setEditingPurchase(purchase)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
   const handleSaved = useCallback(() => {
     setRefreshKey((k) => k + 1)
     setShowForm(false)
+    setEditingPurchase(null)
   }, [])
 
   const fmt = (n: number) =>
@@ -77,11 +91,22 @@ export default function LogisticsPage() {
         </button>
       </div>
 
-      {/* Formulario inline */}
+      {/* Formulario nueva compra */}
       {showForm && (
         <div className="card-obra p-5">
           <h2 className="section-title mb-4">Nueva compra</h2>
           <LogisticaEditor onSaved={handleSaved} />
+        </div>
+      )}
+
+      {/* Editor inline para editar compra */}
+      {editingPurchase && (
+        <div className="card-obra p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="section-title">Editar compra</h2>
+            <button type="button" className="proj-btn-ghost-sm" onClick={() => setEditingPurchase(null)}>Cancelar</button>
+          </div>
+          <LogisticaEditor key={editingPurchase.id} initialSelectedId={editingPurchase.id} onSaved={handleSaved} />
         </div>
       )}
 
@@ -117,6 +142,8 @@ export default function LogisticsPage() {
                 purchase={p}
                 stageName={stageMap[p.stageId]?.name ?? ""}
                 onStatus={handleStatus}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
                 fmt={fmt}
               />
             ))}
@@ -136,6 +163,8 @@ export default function LogisticsPage() {
                 purchase={p}
                 stageName={stageMap[p.stageId]?.name ?? ""}
                 onStatus={handleStatus}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
                 fmt={fmt}
               />
             ))}
@@ -156,6 +185,8 @@ export default function LogisticsPage() {
                 purchase={p}
                 stageName={stageMap[p.stageId]?.name ?? ""}
                 onStatus={handleStatus}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
                 fmt={fmt}
               />
             ))
@@ -170,11 +201,15 @@ function PurchaseRow({
   purchase: p,
   stageName,
   onStatus,
+  onEdit,
+  onDelete,
   fmt,
 }: {
   purchase: PurchaseScheduleItem
   stageName: string
   onStatus: (id: string, s: PurchaseScheduleItem["status"]) => void
+  onEdit: (purchase: PurchaseScheduleItem) => void
+  onDelete: (purchase: PurchaseScheduleItem) => void
   fmt: (n: number) => string
 }) {
   return (
@@ -195,26 +230,32 @@ function PurchaseRow({
         </div>
       </div>
 
-      {/* Cambio de estado */}
-      <div className="flex gap-1.5 flex-wrap">
-        {(["pending", "ordered", "delivered"] as const).map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => onStatus(p.id, s)}
-            className={`status-btn ${
-              p.status === s
-                ? s === "pending"    ? "status-btn-pending-active"
-                : s === "ordered"    ? "status-btn-progress-active"
-                :                      "status-btn-done-active"
-                : s === "pending"    ? "status-btn-pending"
-                : s === "ordered"    ? "status-btn-progress"
-                :                      "status-btn-done"
-            }`}
-          >
-            {STATUS_LABEL[s]}
-          </button>
-        ))}
+      {/* Cambio de estado + acciones */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex gap-1.5 flex-wrap">
+          {(["pending", "ordered", "delivered"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onStatus(p.id, s)}
+              className={`status-btn ${
+                p.status === s
+                  ? s === "pending"    ? "status-btn-pending-active"
+                  : s === "ordered"    ? "status-btn-progress-active"
+                  :                      "status-btn-done-active"
+                  : s === "pending"    ? "status-btn-pending"
+                  : s === "ordered"    ? "status-btn-progress"
+                  :                      "status-btn-done"
+              }`}
+            >
+              {STATUS_LABEL[s]}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          <button type="button" className="proj-btn-ghost-sm" onClick={() => onEdit(p)}>Editar</button>
+          <button type="button" className="proj-btn-danger-sm" onClick={() => onDelete(p)}>Eliminar</button>
+        </div>
       </div>
     </div>
   )

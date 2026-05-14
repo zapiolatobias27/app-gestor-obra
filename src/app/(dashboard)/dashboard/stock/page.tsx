@@ -1,7 +1,8 @@
 "use client"
 
 import React, { useEffect, useMemo, useState } from "react"
-import { getSupplies, getStages, getTasks, addSupply } from "@/lib/mock-db"
+import { getSupplies, getStages, getTasks, addSupply, deleteSupply } from "@/lib/mock-db"
+import { StockEditor } from "@/features/import/components/stock-editor"
 import { checkAllDeviations, formatDeviation } from "@/features/stock/logic/deviation-check"
 import { StockTable } from "@/features/stock/components/stock-table"
 import { Stage, Task } from "@/types/project"
@@ -162,6 +163,7 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
 export default function StockPage() {
   const [refreshKey, setRefreshKey]   = useState(0)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [editingSupply, setEditingSupply] = useState<SupplyItem | null>(null)
   const [supplies, setSupplies]       = useState<SupplyItem[]>([])
   const [stages, setStages]           = useState<Stage[]>([])
   const [allTasks, setAllTasks]       = useState<Task[]>([])
@@ -186,6 +188,13 @@ export default function StockPage() {
   const refresh = () => {
     setRefreshKey((k) => k + 1)
     setShowAddForm(false)
+    setEditingSupply(null)
+  }
+
+  const handleDelete = async (supply: SupplyItem) => {
+    if (!confirm(`¿Eliminar "${supply.name}"?`)) return
+    await deleteSupply(supply.id)
+    setRefreshKey((k) => k + 1)
   }
 
   return (
@@ -263,11 +272,22 @@ export default function StockPage() {
         )}
       </div>
 
+      {/* Editor inline para editar insumo */}
+      {editingSupply && (
+        <div className="card-obra p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="section-title">Editar insumo</h2>
+            <button type="button" className="proj-btn-ghost-sm" onClick={() => setEditingSupply(null)}>Cancelar</button>
+          </div>
+          <StockEditor key={editingSupply.id} initialSelectedId={editingSupply.id} onSaved={refresh} />
+        </div>
+      )}
+
       {/* Tabla */}
       <div className="space-y-2">
         <h2 className="section-title px-1">Insumos Registrados</h2>
         <p className="page-subtitle px-1 mb-3">
-          Toca el stock real para editar. Los desvíos ≥5% se resaltan automáticamente.
+          Toca el stock real para editar cantidades. Los desvíos ≥5% se resaltan automáticamente.
         </p>
         <StockTable
           key={refreshKey}
@@ -275,6 +295,8 @@ export default function StockPage() {
           stages={stages}
           tasks={allTasks}
           onUpdate={() => setRefreshKey((k) => k + 1)}
+          onEdit={(s) => { setEditingSupply(s); window.scrollTo({ top: 0, behavior: "smooth" }) }}
+          onDelete={handleDelete}
         />
       </div>
     </div>

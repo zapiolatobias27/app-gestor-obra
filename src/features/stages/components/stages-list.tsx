@@ -7,6 +7,8 @@ import { Stage, Task, TaskStatus } from "@/types/project"
 interface StagesListProps {
   stages: Stage[]
   tasks: Task[]
+  onEdit?: (stage: Stage) => void
+  onDelete?: (stage: Stage) => void
 }
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -23,7 +25,7 @@ const STATUS_BADGE: Record<TaskStatus, string> = {
   blocked:     "badge-blocked",
 }
 
-export function StagesList({ stages, tasks }: StagesListProps) {
+export function StagesList({ stages, tasks, onEdit, onDelete }: StagesListProps) {
   return (
     <div className="space-y-3">
       {stages.map((stage) => {
@@ -33,8 +35,8 @@ export function StagesList({ stages, tasks }: StagesListProps) {
         const pct     = st.length > 0 ? Math.round((done / st.length) * 100) : 0
 
         return (
-          <Link key={stage.id} href={`/dashboard/stages/${stage.id}`} className="block group">
-            <div className="card-obra p-4 transition-shadow group-hover:shadow-md">
+          <div key={stage.id} className="card-obra p-4">
+            <Link href={`/dashboard/stages/${stage.id}`} className="block group">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="stage-code">{stage.code}</span>
@@ -51,7 +53,6 @@ export function StagesList({ stages, tasks }: StagesListProps) {
                   {STATUS_LABEL[stage.status]}
                 </span>
               </div>
-
               <div className="flex items-center gap-3">
                 <div className="progress-track flex-1">
                   <div
@@ -61,8 +62,22 @@ export function StagesList({ stages, tasks }: StagesListProps) {
                 </div>
                 <span className="stage-pct">{pct}%</span>
               </div>
-            </div>
-          </Link>
+            </Link>
+            {(onEdit || onDelete) && (
+              <div className="flex gap-2 mt-3 pt-3 border-t border-stone-100">
+                {onEdit && (
+                  <button type="button" className="proj-btn-ghost-sm" onClick={() => onEdit(stage)}>
+                    Editar
+                  </button>
+                )}
+                {onDelete && (
+                  <button type="button" className="proj-btn-danger-sm" onClick={() => onDelete(stage)}>
+                    Eliminar
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )
       })}
     </div>
