@@ -53,6 +53,7 @@ function mapJoinRequest(row: Record<string, unknown>): JoinRequest {
     status: row.status as JoinRequest["status"],
     assignedRole: row.assigned_role as UserRole | undefined,
     reviewedAt: row.reviewed_at as string | undefined,
+    userId: (row.user_id as string | null) ?? undefined,
   }
 }
 
@@ -140,15 +141,18 @@ export async function reopenProject(projectId: string): Promise<void> {
 
 export async function getProjectByInviteCode(code: string): Promise<Project | null> {
   const supabase = createClient()
-  const { data } = await supabase.from("projects").select("*").eq("invite_code", code).single()
-  return data ? mapProject(data) : null
+  // Bypasses RLS via SECURITY DEFINER so non-members can see the project by invite code
+  const { data } = await supabase.rpc("get_project_by_invite_code", { p_code: code })
+  const row = Array.isArray(data) ? (data[0] ?? null) : null
+  return row ? mapProject(row as Record<string, unknown>) : null
 }
 
 export async function submitJoinRequest(projectId: string, name: string, email: string): Promise<JoinRequest> {
   const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
   const { data, error } = await supabase
     .from("join_requests")
-    .insert({ project_id: projectId, name, email, status: "pending" })
+    .insert({ project_id: projectId, name, email, status: "pending", user_id: user?.id ?? null })
     .select()
     .single()
   if (error) throw new Error(error.message)
@@ -157,23 +161,27 @@ export async function submitJoinRequest(projectId: string, name: string, email: 
 
 export async function approveJoinRequest(projectId: string, requestId: string, role: UserRole): Promise<void> {
   const supabase = createClient()
-  const { data: req } = await supabase.from("join_requests").select("*").eq("id", requestId).single()
-  if (!req) return
+  const { data: req, error: fetchError } = await supabase
+    .from("join_requests").select("*").eq("id", requestId).single()
+  if (fetchError || !req) throw new Error("No se encontró la solicitud")
 
-  await supabase.from("join_requests").update({
+  const { error: updateError } = await supabase.from("join_requests").update({
     status: "approved",
     assigned_role: role,
     reviewed_at: new Date().toISOString(),
   }).eq("id", requestId)
+  if (updateError) throw new Error(updateError.message)
 
-  const { data: { user } } = await supabase.auth.getUser()
-  await supabase.from("project_members").insert({
+  // Use the invitee's user_id stored when they submitted the request
+  const inviteeId = (req.user_id as string | null) ?? `anon-${Date.now()}`
+  const { error: insertError } = await supabase.from("project_members").insert({
     project_id: projectId,
-    user_id: user?.id ?? `user-${Date.now()}`,
-    name: req.name,
-    email: req.email,
+    user_id: inviteeId,
+    name: req.name as string,
+    email: req.email as string,
     role,
   })
+  if (insertError) throw new Error(insertError.message)
 }
 
 export async function rejectJoinRequest(projectId: string, requestId: string): Promise<void> {

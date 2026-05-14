@@ -20,6 +20,7 @@ export interface JoinRequest {
   status: "pending" | "approved" | "rejected"
   assignedRole?: UserRole
   reviewedAt?: string
+  userId?: string
 }
 
 export interface InviteCode {
