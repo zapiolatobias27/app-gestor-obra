@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
-import { getProjectByInviteCode, getProjectMembers, getJoinRequests, submitJoinRequest } from "@/lib/projects-db"
+import { getProjectByInviteCode, joinProjectByCode } from "@/lib/projects-db"
 import { Project } from "@/types/project"
 
 export default function InvitePage() {
@@ -12,50 +12,32 @@ export default function InvitePage() {
   const [mounted, setMounted]   = useState(false)
   const [project, setProject]   = useState<Project | null>(null)
   const [notFound, setNotFound] = useState(false)
-  const [name, setName]         = useState("")
-  const [email, setEmail]       = useState("")
-  const [sent, setSent]         = useState(false)
+  const [joining, setJoining]   = useState(false)
+  const [joined, setJoined]     = useState(false)
   const [error, setError]       = useState("")
 
   useEffect(() => {
     setMounted(true)
-
-    const load = async () => {
-      const proj = await getProjectByInviteCode(code)
-      if (!proj) { setNotFound(true); return }
-      setProject(proj)
-
-      const { createClient } = await import("@/lib/supabase/client")
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) {
-        setEmail(user.email ?? "")
-        const { data: profile } = await supabase.from("profiles").select("name").eq("id", user.id).single()
-        if (profile) setName((profile.name as string) ?? "")
-      }
-    }
-
-    load()
+    getProjectByInviteCode(code)
+      .then((proj) => { if (proj) setProject(proj); else setNotFound(true) })
+      .catch(() => setNotFound(true))
   }, [code])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name.trim() || !email.trim()) { setError("Completá tu nombre y email."); return }
-    if (!project) { setError("Proyecto no encontrado."); return }
-
-    const [members, joinRequests] = await Promise.all([
-      getProjectMembers(project.id),
-      getJoinRequests(project.id),
-    ])
-
-    const already = members.some((m) => m.email === email.trim())
-    if (already) { setError("Ya sos colaborador de este proyecto."); return }
-
-    const exists = joinRequests.some((r) => r.email === email.trim() && r.status === "pending")
-    if (exists) { setError("Ya tenés una solicitud pendiente para este proyecto."); return }
-
-    await submitJoinRequest(project.id, name.trim(), email.trim())
-    setSent(true)
+  const handleJoin = async () => {
+    if (!project) return
+    setJoining(true)
+    setError("")
+    try {
+      await joinProjectByCode(code)
+      setJoined(true)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : ""
+      if (msg === "ALREADY_MEMBER")    setError("Ya sos miembro de este proyecto.")
+      else if (msg === "SETUP_REQUIRED") setError("Falta configurar Supabase.")
+      else setError(msg || "Error al unirse al proyecto.")
+    } finally {
+      setJoining(false)
+    }
   }
 
   if (!mounted) return null
@@ -70,14 +52,14 @@ export default function InvitePage() {
     )
   }
 
-  if (sent) {
+  if (joined) {
     return (
       <div className="invite-page">
         <div className="invite-card">
           <div className="invite-success-icon">✓</div>
-          <h2 className="invite-title">¡Solicitud enviada!</h2>
+          <h2 className="invite-title">¡Te uniste al proyecto!</h2>
           <p className="invite-subtitle">
-            El propietario de <strong>{project?.name}</strong> revisará tu solicitud y te asignará un rol.
+            Ya sos colaborador de <strong>{project?.name}</strong>. El propietario puede asignarte un rol distinto.
           </p>
         </div>
       </div>
@@ -96,39 +78,31 @@ export default function InvitePage() {
           </svg>
           <h2 className="invite-title">Invitación al proyecto</h2>
           <p className="invite-subtitle">
-            Fuiste invitado a colaborar en <strong>{project?.name ?? "..."}</strong>.
-            Completá tus datos para enviar una solicitud de acceso.
+            Fuiste invitado a colaborar en <strong>{project?.name ?? "…"}</strong>.
           </p>
         </div>
 
-        <form className="invite-form" onSubmit={handleSubmit}>
-          {error && <p className="proj-form-error">{error}</p>}
-          <div className="proj-form-field">
-            <label className="proj-form-label">Tu nombre completo *</label>
-            <input
-              className="proj-form-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ej: Ana García"
-            />
+        {project && (
+          <div className="bg-stone-50 rounded-lg p-4 border border-stone-100 text-sm text-stone-600">
+            <p>{project.address}</p>
+            <p>Cliente: {project.client}</p>
           </div>
-          <div className="proj-form-field">
-            <label className="proj-form-label">Tu email *</label>
-            <input
-              className="proj-form-input"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="ana@ejemplo.com"
-            />
-          </div>
-          <button type="submit" className="proj-btn-primary" style={{ width: "100%" }}>
-            Solicitar acceso
-          </button>
-        </form>
+        )}
+
+        {error && <p className="proj-form-error">{error}</p>}
+
+        <button
+          type="button"
+          className="proj-btn-primary"
+          style={{ width: "100%" }}
+          onClick={handleJoin}
+          disabled={joining || !project}
+        >
+          {joining ? "Uniéndome…" : "Unirme al proyecto"}
+        </button>
 
         <p className="invite-footer-note">
-          El propietario del proyecto revisará tu solicitud y te asignará un rol antes de aceptarte.
+          Te vas a unir con el rol de Encargado de Obra. El propietario puede cambiarlo después.
         </p>
       </div>
     </div>

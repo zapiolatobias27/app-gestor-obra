@@ -4,12 +4,11 @@ import React, { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   getAllProjects, createProject, finalizeProject, reopenProject,
-  setActiveProjectId, getActiveProjectId, approveJoinRequest,
-  rejectJoinRequest, updateMemberRole, removeMember,
-  getProjectMembers, getJoinRequests, deleteProject,
-  getProjectByInviteCode, submitJoinRequest,
+  setActiveProjectId, getActiveProjectId, updateMemberRole, removeMember,
+  getProjectMembers, deleteProject,
+  getProjectByInviteCode, joinProjectByCode,
 } from "@/lib/projects-db"
-import { Project, UserRole, JoinRequest, ProjectMember } from "@/types/project"
+import { Project, UserRole, ProjectMember } from "@/types/project"
 
 const ROLE_LABEL: Record<UserRole, string> = {
   owner: "Propietario",
@@ -62,15 +61,13 @@ function InviteSection({ code }: { code: string }) {
 
 // ─── Colaborar form ───────────────────────────────────────────────────────────
 
-function ColaborarForm({
-  userName, userEmail, onDone,
-}: { userName: string; userEmail: string; onDone: () => void }) {
-  const [code, setCode]         = useState("")
-  const [found, setFound]       = useState<Project | null>(null)
+function ColaborarForm({ onDone }: { onDone: () => void }) {
+  const [code, setCode]           = useState("")
+  const [found, setFound]         = useState<Project | null>(null)
   const [searching, setSearching] = useState(false)
-  const [sending, setSending]   = useState(false)
-  const [sent, setSent]         = useState(false)
-  const [error, setError]       = useState("")
+  const [joining, setJoining]     = useState(false)
+  const [joined, setJoined]       = useState(false)
+  const [error, setError]         = useState("")
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -84,11 +81,9 @@ function ColaborarForm({
       setFound(proj)
     } catch (err) {
       const msg = err instanceof Error ? err.message : ""
-      if (msg === "SETUP_REQUIRED") {
-        setError("Falta configurar Supabase. Corré el SQL del paso de abajo.")
-      } else {
-        setError("Error al buscar el proyecto.")
-      }
+      setError(msg === "SETUP_REQUIRED"
+        ? "Falta configurar Supabase. Corré el SQL de join_project_by_code."
+        : "Error al buscar el proyecto.")
     } finally {
       setSearching(false)
     }
@@ -96,30 +91,24 @@ function ColaborarForm({
 
   const handleJoin = async () => {
     if (!found) return
-    setSending(true)
+    setJoining(true)
     setError("")
     try {
-      const members = await getProjectMembers(found.id)
-      if (members.some((m) => m.email === userEmail)) {
-        setError("Ya sos colaborador de este proyecto.")
-        return
-      }
-      const reqs = await getJoinRequests(found.id)
-      if (reqs.some((r) => r.email === userEmail && r.status === "pending")) {
-        setError("Ya tenés una solicitud pendiente para este proyecto.")
-        return
-      }
-      await submitJoinRequest(found.id, userName, userEmail)
-      setSent(true)
+      await joinProjectByCode(code.trim().toUpperCase())
+      setJoined(true)
       onDone()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al enviar la solicitud.")
+      const msg = err instanceof Error ? err.message : ""
+      if (msg === "ALREADY_MEMBER")    setError("Ya sos miembro de este proyecto.")
+      else if (msg === "INVALID_CODE") setError("Código inválido.")
+      else if (msg === "SETUP_REQUIRED") setError("Falta configurar Supabase. Corré el SQL de join_project_by_code.")
+      else setError(msg || "Error al unirse al proyecto.")
     } finally {
-      setSending(false)
+      setJoining(false)
     }
   }
 
-  if (sent) {
+  if (joined) {
     return (
       <div className="card-obra p-5 flex items-center gap-3">
         <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
@@ -128,7 +117,7 @@ function ColaborarForm({
           </svg>
         </div>
         <p className="text-sm text-stone-700 font-medium">
-          Solicitud enviada. El propietario de <strong>{found?.name}</strong> revisará tu pedido.
+          Te uniste a <strong>{found?.name}</strong>. Ya podés verlo en tu lista.
         </p>
       </div>
     )
@@ -159,8 +148,8 @@ function ColaborarForm({
             <p className="text-sm text-stone-500">{found.address} · Cliente: {found.client}</p>
           </div>
           <div className="flex gap-2">
-            <button type="button" className="proj-btn-primary" onClick={handleJoin} disabled={sending}>
-              {sending ? "Enviando…" : "Solicitar acceso"}
+            <button type="button" className="proj-btn-primary" onClick={handleJoin} disabled={joining}>
+              {joining ? "Uniéndome…" : "Unirme al proyecto"}
             </button>
             <button type="button" className="proj-btn-ghost" onClick={() => { setFound(null); setCode("") }}>
               Volver
@@ -170,57 +159,6 @@ function ColaborarForm({
       )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
-    </div>
-  )
-}
-
-// ─── Join-request row ─────────────────────────────────────────────────────────
-
-function JoinRequestRow({
-  req, projectId, onAction,
-}: { req: JoinRequest; projectId: string; onAction: () => void }) {
-  const [selectedRole, setSelectedRole] = useState<UserRole>("supervisor")
-
-  const handleApprove = async () => {
-    await approveJoinRequest(projectId, req.id, selectedRole)
-    onAction()
-  }
-  const handleReject = async () => {
-    await rejectJoinRequest(projectId, req.id)
-    onAction()
-  }
-
-  if (req.status !== "pending") {
-    return (
-      <div className="proj-jr-row proj-jr-resolved">
-        <span className="proj-jr-name">{req.name}</span>
-        <span className="proj-jr-email">{req.email}</span>
-        <span className={req.status === "approved" ? "proj-jr-badge-ok" : "proj-jr-badge-no"}>
-          {req.status === "approved" ? `✓ Aprobado — ${ROLE_LABEL[req.assignedRole!]}` : "✗ Rechazado"}
-        </span>
-      </div>
-    )
-  }
-
-  return (
-    <div className="proj-jr-row">
-      <div className="proj-jr-info">
-        <span className="proj-jr-name">{req.name}</span>
-        <span className="proj-jr-email">{req.email}</span>
-      </div>
-      <select
-        className="proj-role-select"
-        value={selectedRole}
-        onChange={(e) => setSelectedRole(e.target.value as UserRole)}
-      >
-        <option value="owner">Propietario</option>
-        <option value="architect">Arquitecto</option>
-        <option value="supervisor">Encargado de Obra</option>
-      </select>
-      <div className="proj-jr-actions">
-        <button type="button" className="proj-btn-approve" onClick={handleApprove}>Aceptar</button>
-        <button type="button" className="proj-btn-reject" onClick={handleReject}>Rechazar</button>
-      </div>
     </div>
   )
 }
@@ -373,7 +311,7 @@ function DeleteProjectModal({
 
 // ─── Project card ─────────────────────────────────────────────────────────────
 
-type ProjectData = { project: Project; members: ProjectMember[]; joinRequests: JoinRequest[] }
+type ProjectData = { project: Project; members: ProjectMember[] }
 
 function ProjectCard({
   data, isActive, currentUserId, onSwitch, onAction,
@@ -384,12 +322,10 @@ function ProjectCard({
   onSwitch: () => void
   onAction: () => void
 }) {
-  const { project, members, joinRequests } = data
+  const { project, members } = data
   const isOwner = members.some((m) => m.userId === currentUserId && m.role === "owner")
   const [expanded, setExpanded] = useState(isActive)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
-
-  const pendingRequests = joinRequests.filter((r) => r.status === "pending")
 
   return (
     <div className={`proj-card ${isActive ? "proj-card-active" : ""} ${project.status === "completed" ? "proj-card-done" : ""}`}>
@@ -405,9 +341,6 @@ function ProjectCard({
             <span className={`proj-status-badge proj-status-${project.status}`}>
               {STATUS_LABEL[project.status]}
             </span>
-            {pendingRequests.length > 0 && (
-              <span className="proj-badge-pending">{pendingRequests.length} solicitud{pendingRequests.length > 1 ? "es" : ""}</span>
-            )}
           </div>
         </div>
 
@@ -477,16 +410,6 @@ function ProjectCard({
           {/* Invitar colaboradores — solo owner */}
           {isOwner && project.inviteCode && (
             <InviteSection code={project.inviteCode} />
-          )}
-
-          {/* Solicitudes de ingreso — solo owner */}
-          {isOwner && joinRequests.length > 0 && (
-            <div className="proj-section">
-              <p className="proj-section-title">Solicitudes de ingreso</p>
-              {joinRequests.map((r) => (
-                <JoinRequestRow key={r.id} req={r} projectId={project.id} onAction={onAction} />
-              ))}
-            </div>
           )}
 
           {/* Miembros */}
@@ -580,11 +503,8 @@ export default function ProjectsPage() {
     const projects = await getAllProjects()
     const dataList = await Promise.all(
       projects.map(async (project) => {
-        const [members, joinRequests] = await Promise.all([
-          getProjectMembers(project.id),
-          getJoinRequests(project.id),
-        ])
-        return { project, members, joinRequests }
+        const members = await getProjectMembers(project.id)
+        return { project, members }
       })
     )
     setProjectsData(dataList)
@@ -666,11 +586,7 @@ export default function ProjectsPage() {
       )}
 
       {showColaborar && (
-        <ColaborarForm
-          userName={currentUserName}
-          userEmail={currentUserEmail}
-          onDone={reload}
-        />
+        <ColaborarForm onDone={reload} />
       )}
 
       {/* Lista de proyectos */}

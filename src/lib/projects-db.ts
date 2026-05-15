@@ -150,16 +150,16 @@ export async function getProjectByInviteCode(code: string): Promise<Project | nu
   return row ? mapProject(row as Record<string, unknown>) : null
 }
 
-export async function submitJoinRequest(projectId: string, name: string, email: string): Promise<JoinRequest> {
+export async function joinProjectByCode(code: string): Promise<Project> {
   const supabase = createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  const { data, error } = await supabase
-    .from("join_requests")
-    .insert({ project_id: projectId, name, email, status: "pending", user_id: user?.id ?? null })
-    .select()
-    .single()
-  if (error) throw new Error(error.message)
-  return mapJoinRequest(data)
+  const { data, error } = await supabase.rpc("join_project_by_code", { p_code: code })
+  if (error) {
+    if (error.message.includes("INVALID_CODE"))      throw new Error("INVALID_CODE")
+    if (error.message.includes("ALREADY_MEMBER"))    throw new Error("ALREADY_MEMBER")
+    if (error.message.includes("NOT_AUTHENTICATED")) throw new Error("NOT_AUTHENTICATED")
+    throw new Error("SETUP_REQUIRED")
+  }
+  return mapProject(data as Record<string, unknown>)
 }
 
 export async function approveJoinRequest(projectId: string, requestId: string, role: UserRole): Promise<void> {
