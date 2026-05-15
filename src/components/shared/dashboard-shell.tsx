@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import { AppSidebar, IconMenu } from "./app-sidebar"
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
@@ -10,9 +10,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     if (window.innerWidth >= 768) setSidebarOpen(true)
   }, [])
 
+  const handleClose  = useCallback(() => setSidebarOpen(false), [])
+  const handleToggle = useCallback(() => setSidebarOpen((v) => !v), [])
+
   return (
     <div className="dashboard-shell">
-      {/* Botón flotante solo visible en mobile cuando el sidebar está cerrado */}
       {!sidebarOpen && (
         <button
           type="button"
@@ -26,8 +28,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       <AppSidebar
         open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        onToggle={() => setSidebarOpen((v) => !v)}
+        onClose={handleClose}
+        onToggle={handleToggle}
       />
 
       <main className="dashboard-main">{children}</main>
