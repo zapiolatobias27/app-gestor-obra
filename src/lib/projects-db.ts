@@ -157,7 +157,7 @@ export async function joinProjectByCode(code: string): Promise<Project> {
     if (error.message.includes("INVALID_CODE"))      throw new Error("INVALID_CODE")
     if (error.message.includes("ALREADY_MEMBER"))    throw new Error("ALREADY_MEMBER")
     if (error.message.includes("NOT_AUTHENTICATED")) throw new Error("NOT_AUTHENTICATED")
-    throw new Error("SETUP_REQUIRED")
+    throw new Error("ERROR: " + error.message)
   }
   return mapProject(data as Record<string, unknown>)
 }
