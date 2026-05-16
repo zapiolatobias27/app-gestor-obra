@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react"
 import { Stage, Task, TaskStatus, UserRole } from "@/types/project"
-import { addTask, getTasksByStage } from "@/lib/mock-db"
+import { addTask, getTasksByStage, updateStage } from "@/lib/mock-db"
 import { TaskCard } from "./task-card"
 
 interface StageDetailProps {
@@ -109,8 +109,21 @@ const STATUS_BADGE: Record<TaskStatus, string> = {
 }
 
 export function StageDetail({ stage, tasks: initialTasks, currentUserId, currentUserRole }: StageDetailProps) {
-  const [tasks, setTasks]       = useState<Task[]>(initialTasks)
-  const [showForm, setShowForm] = useState(false)
+  const [tasks, setTasks]         = useState<Task[]>(initialTasks)
+  const [showForm, setShowForm]   = useState(false)
+  const [editingName, setEditingName] = useState(false)
+  const [stageName, setStageName]     = useState(stage.name)
+  const [savingName, setSavingName]   = useState(false)
+
+  const handleSaveName = async () => {
+    const trimmed = stageName.trim()
+    if (!trimmed || trimmed === stage.name) { setEditingName(false); return }
+    setSavingName(true)
+    await updateStage({ ...stage, name: trimmed })
+    stage.name = trimmed
+    setSavingName(false)
+    setEditingName(false)
+  }
 
   const reload = async () => { const t = await getTasksByStage(stage.id); setTasks(t) }
 
@@ -132,9 +145,39 @@ export function StageDetail({ stage, tasks: initialTasks, currentUserId, current
       {/* Header etapa */}
       <div className="card-obra p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="page-eyebrow">{stage.code}</p>
-            <h2 className="page-title">{stage.name}</h2>
+            {editingName ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  className="proj-form-input text-xl font-bold flex-1"
+                  value={stageName}
+                  onChange={(e) => setStageName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveName(); if (e.key === "Escape") { setStageName(stage.name); setEditingName(false) } }}
+                  autoFocus
+                />
+                <button type="button" className="proj-btn-primary" onClick={handleSaveName} disabled={savingName}>
+                  {savingName ? "…" : "Guardar"}
+                </button>
+                <button type="button" className="proj-btn-ghost" onClick={() => { setStageName(stage.name); setEditingName(false) }}>
+                  Cancelar
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <h2 className="page-title">{stageName}</h2>
+                <button
+                  type="button"
+                  onClick={() => setEditingName(true)}
+                  className="text-stone-400 hover:text-stone-700 transition-colors flex-shrink-0"
+                  title="Editar nombre de etapa"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M11 2L14 5L5 14H2V11L11 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="none"/>
+                  </svg>
+                </button>
+              </div>
+            )}
             {(stage.weekStart && stage.weekEnd) && (
               <p className="page-subtitle mt-1">
                 Semanas {stage.weekStart}–{stage.weekEnd}
