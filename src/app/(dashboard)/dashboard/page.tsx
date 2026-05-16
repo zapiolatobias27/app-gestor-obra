@@ -433,6 +433,19 @@ export default function DashboardPage() {
         setProject(null)
         return
       }
+
+      // Calcular presupuesto real desde facturas pagadas en Supabase
+      const pid = getActiveProjectId()
+      if (pid) {
+        const { data: invoices } = await supabase
+          .from("invoices")
+          .select("amount")
+          .eq("project_id", pid)
+          .eq("status", "paid")
+        const paidTotal = (invoices ?? []).reduce((sum, inv) => sum + ((inv.amount as number) ?? 0), 0)
+        proj.budgetReal = paidTotal
+      }
+
       const [stgs, tsks, alts, crit, pend, res, movs, summary] = await Promise.all([
         getStages(),
         getTasks(),
