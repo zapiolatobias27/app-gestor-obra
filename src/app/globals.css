@@ -482,30 +482,30 @@ body {
     flex: 1;
     overflow: auto;
     min-width: 0;
-    /* Mobile: top padding para que el contenido no quede tapado
-       por el botón hamburguesa que está dentro del sidebar drawer */
   }
-  /* Botón flotante de apertura del menú — solo visible en mobile */
-  .fab-menu-btn {
+  /* Semicírculo lateral para abrir/cerrar el sidebar */
+  .sidebar-tab {
     position: fixed;
-    top: 0.875rem;
-    left: 0.875rem;
-    z-index: 45;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 51;
+    width: 1.375rem;
+    height: 3rem;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 2.5rem;
-    height: 2.5rem;
-    border-radius: 0.625rem;
-    background: var(--stone-900);
+    background: var(--stone-800);
     color: var(--sand-200);
     border: none;
     cursor: pointer;
-    box-shadow: 0 2px 12px rgba(30,18,8,0.25);
-    transition: background 0.15s;
+    border-radius: 0 9999px 9999px 0;
+    box-shadow: 2px 0 10px rgba(30,18,8,0.30);
+    transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.15s;
+    padding: 0;
   }
-  .fab-menu-btn:hover { background: var(--stone-800); }
-  /* FAB visible en desktop también cuando sidebar está cerrado (controlado por JS) */
+  .sidebar-tab--open  { left: 15rem; }
+  .sidebar-tab--closed { left: 0; }
+  .sidebar-tab:hover { background: var(--stone-700); }
   .sidebar-user-avatar {
     width: 1.75rem;
     height: 1.75rem;
