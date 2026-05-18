@@ -94,6 +94,7 @@ export default function InvoicesPage() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState("")
   const photoRef = useRef<HTMLInputElement>(null)
+  const pdfRef   = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -114,7 +115,7 @@ export default function InvoicesPage() {
   const totalVencidas = invoices.filter((i) => i._status === "overdue").length
   const purchasesTotal = purchases.reduce((s, p) => s + (p.realCost ?? p.estimatedCost), 0)
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setForm((f) => ({ ...f, photoFile: file, photoPreview: URL.createObjectURL(file) }))
@@ -378,52 +379,71 @@ export default function InvoicesPage() {
               />
             </div>
 
-            {/* Foto de factura */}
+            {/* Comprobante (imagen o PDF) */}
             <div>
               <label className="block text-xs font-medium text-stone-600 mb-2">
-                Foto de factura
+                Comprobante
               </label>
-              {form.photoPreview ? (
+              {form.photoFile ? (
                 <div className="flex items-start gap-3">
-                  <a href={form.photoPreview} target="_blank" rel="noreferrer">
-                    <img
-                      src={form.photoPreview}
-                      alt="Vista previa"
-                      className="w-24 h-24 object-cover rounded-lg border border-stone-200 cursor-pointer hover:opacity-80 transition-opacity"
-                    />
-                  </a>
+                  {form.photoFile.type.startsWith("image/") ? (
+                    <a href={form.photoPreview!} target="_blank" rel="noreferrer">
+                      <img
+                        src={form.photoPreview!}
+                        alt="Vista previa"
+                        className="w-24 h-24 object-cover rounded-lg border border-stone-200 cursor-pointer hover:opacity-80 transition-opacity"
+                      />
+                    </a>
+                  ) : (
+                    <div className="flex items-center gap-2 bg-stone-100 border border-stone-200 rounded-lg px-3 py-2">
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                        <rect x="3" y="1" width="11" height="15" rx="1.5" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" />
+                        <path d="M11 1v4h4" stroke="#94a3b8" strokeWidth="1" fill="none" />
+                        <text x="5" y="13" fontSize="5" fontWeight="bold" fill="#dc2626" fontFamily="sans-serif">PDF</text>
+                      </svg>
+                      <span className="text-xs text-stone-600 truncate max-w-[140px]">{form.photoFile.name}</span>
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="proj-btn-ghost-sm"
                     onClick={() => {
-                      URL.revokeObjectURL(form.photoPreview!)
+                      if (form.photoPreview) URL.revokeObjectURL(form.photoPreview)
                       setForm((f) => ({ ...f, photoFile: null, photoPreview: null }))
                       if (photoRef.current) photoRef.current.value = ""
+                      if (pdfRef.current)   pdfRef.current.value   = ""
                     }}
                   >
-                    Quitar foto
+                    Quitar
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  className="proj-btn-ghost-sm"
-                  onClick={() => photoRef.current?.click()}
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 14 14"
-                    fill="none"
-                    aria-hidden="true"
-                    className="inline mr-1"
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="proj-btn-ghost-sm"
+                    onClick={() => photoRef.current?.click()}
                   >
-                    <rect x="1" y="2" width="12" height="10" rx="1" fill="currentColor" opacity=".4" />
-                    <circle cx="4.5" cy="5.5" r="1" fill="currentColor" opacity=".8" />
-                    <path d="M1 9L4 7L6 8.5L9 6.5L13 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                  </svg>
-                  Adjuntar imagen
-                </button>
+                    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="inline mr-1">
+                      <rect x="1" y="2" width="12" height="10" rx="1" fill="currentColor" opacity=".4" />
+                      <circle cx="4.5" cy="5.5" r="1" fill="currentColor" opacity=".8" />
+                      <path d="M1 9L4 7L6 8.5L9 6.5L13 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    </svg>
+                    Foto
+                  </button>
+                  <button
+                    type="button"
+                    className="proj-btn-ghost-sm"
+                    onClick={() => pdfRef.current?.click()}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="inline mr-1">
+                      <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".3" stroke="currentColor" strokeWidth="1" />
+                      <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1" fill="none" opacity=".6" />
+                      <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif">PDF</text>
+                    </svg>
+                    PDF
+                  </button>
+                </div>
               )}
               <input
                 ref={photoRef}
@@ -431,7 +451,14 @@ export default function InvoicesPage() {
                 accept="image/*"
                 capture="environment"
                 className="hidden"
-                onChange={handlePhotoChange}
+                onChange={handleFileChange}
+              />
+              <input
+                ref={pdfRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={handleFileChange}
               />
             </div>
 
@@ -511,35 +538,22 @@ export default function InvoicesPage() {
                             href={inv.photoUrl}
                             target="_blank"
                             rel="noreferrer"
-                            title="Ver foto de factura"
+                            title={inv.photoUrl.toLowerCase().endsWith(".pdf") ? "Ver PDF" : "Ver imagen"}
                             className="text-stone-400 hover:text-stone-700 transition-colors"
                           >
-                            <svg
-                              width="14"
-                              height="14"
-                              viewBox="0 0 14 14"
-                              fill="none"
-                              aria-hidden="true"
-                            >
-                              <rect
-                                x="1"
-                                y="2"
-                                width="12"
-                                height="10"
-                                rx="1"
-                                fill="currentColor"
-                                opacity=".3"
-                              />
-                              <circle cx="4.5" cy="5.5" r="1" fill="currentColor" opacity=".8" />
-                              <path
-                                d="M1 9L4 7L6 8.5L9 6.5L13 9"
-                                stroke="currentColor"
-                                strokeWidth="1.2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                fill="none"
-                              />
-                            </svg>
+                            {inv.photoUrl.toLowerCase().endsWith(".pdf") ? (
+                              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                                <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".3" stroke="currentColor" strokeWidth="1" />
+                                <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1" fill="none" opacity=".6" />
+                                <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif">PDF</text>
+                              </svg>
+                            ) : (
+                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                                <rect x="1" y="2" width="12" height="10" rx="1" fill="currentColor" opacity=".3" />
+                                <circle cx="4.5" cy="5.5" r="1" fill="currentColor" opacity=".8" />
+                                <path d="M1 9L4 7L6 8.5L9 6.5L13 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              </svg>
+                            )}
                           </a>
                         )}
                       </div>
