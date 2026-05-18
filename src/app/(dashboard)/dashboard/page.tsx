@@ -11,12 +11,8 @@ import {
   getCriticalPurchases,
   getDailyBudgetEntries,
   upsertDailyBudgetEntry,
-  getPurchaseRequests,
-  getPendingPurchaseRequests,
   getRecentResolvedRequests,
   createPurchaseRequest,
-  approvePurchaseRequest,
-  rejectPurchaseRequest,
   getBudgetMovements,
   getProjectStageSummary,
 } from "@/lib/mock-db"
@@ -148,65 +144,6 @@ function DailyCashBox({ role, tick }: DailyCashBoxProps) {
           {!canEdit && <p className="daily-readonly-label">Solo lectura</p>}
         </>
       )}
-    </div>
-  )
-}
-
-// ─── Notificaciones de aprobación ───────────────────────────────────────────
-
-interface ApprovalNotifProps {
-  requests: PurchaseRequest[]
-  userName: string
-  onAction: () => void
-}
-
-function ApprovalNotif({ requests, userName, onAction }: ApprovalNotifProps) {
-  if (requests.length === 0) return null
-
-  const handleApprove = async (id: string) => {
-    await approvePurchaseRequest(id, userName)
-    onAction()
-  }
-
-  const handleReject = async (id: string) => {
-    await rejectPurchaseRequest(id, userName)
-    onAction()
-  }
-
-  return (
-    <div className="daily-box">
-      <div className="notif-box notif-box-flush">
-        <p className="notif-title">
-          🔔 Solicitudes de compra pendientes ({requests.length})
-        </p>
-        {requests.map((r) => (
-          <div key={r.id} className="notif-item">
-            <div className="notif-item-info">
-              <p className="notif-item-desc">{r.description}</p>
-              <p className="notif-item-meta">
-                Solicitado por {r.requestedBy} · {fmtDateTime(r.requestedAt)}
-              </p>
-              <div className="notif-actions">
-                <button
-                  type="button"
-                  className="notif-approve-btn"
-                  onClick={() => handleApprove(r.id)}
-                >
-                  Aprobar
-                </button>
-                <button
-                  type="button"
-                  className="notif-reject-btn"
-                  onClick={() => handleReject(r.id)}
-                >
-                  Rechazar
-                </button>
-              </div>
-            </div>
-            <span className="notif-item-amount">{fmt(r.amount)}</span>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
@@ -402,7 +339,6 @@ export default function DashboardPage() {
   const [tasks, setTasks]                 = useState<import("@/types/project").Task[]>([])
   const [alerts, setAlerts]               = useState<import("@/types/stock").AuditAlert[]>([])
   const [criticalPurchases, setCritical]  = useState<import("@/types/project").PurchaseScheduleItem[]>([])
-  const [pendingRequests, setPending]     = useState<import("@/types/project").PurchaseRequest[]>([])
   const [resolvedRequests, setResolved]   = useState<import("@/types/project").PurchaseRequest[]>([])
   const [movements, setMovements]         = useState<import("@/types/project").BudgetMovement[]>([])
   const [stageSummary, setStageSummary]   = useState<import("@/lib/mock-db").ProjectStageSummary | null>(null)
@@ -434,24 +370,23 @@ export default function DashboardPage() {
         return
       }
 
-      // Calcular presupuesto real desde facturas pagadas en Supabase
+      // Calcular presupuesto real: facturas pagadas + solicitudes de compra aprobadas
       const pid = getActiveProjectId()
       if (pid) {
-        const { data: invoices } = await supabase
-          .from("invoices")
-          .select("amount")
-          .eq("project_id", pid)
-          .eq("status", "paid")
-        const paidTotal = (invoices ?? []).reduce((sum, inv) => sum + ((inv.amount as number) ?? 0), 0)
-        proj.budgetReal = paidTotal
+        const [{ data: invoices }, { data: approvedReqs }] = await Promise.all([
+          supabase.from("invoices").select("amount").eq("project_id", pid).eq("status", "paid"),
+          supabase.from("purchase_requests").select("amount").eq("project_id", pid).eq("status", "approved"),
+        ])
+        const paidTotal     = (invoices ?? []).reduce((sum, inv) => sum + ((inv.amount as number) ?? 0), 0)
+        const approvedTotal = (approvedReqs ?? []).reduce((sum, r)  => sum + ((r.amount  as number) ?? 0), 0)
+        proj.budgetReal = paidTotal + approvedTotal
       }
 
-      const [stgs, tsks, alts, crit, pend, res, movs, summary] = await Promise.all([
+      const [stgs, tsks, alts, crit, res, movs, summary] = await Promise.all([
         getStages(),
         getTasks(),
         getAlerts(),
         getCriticalPurchases(),
-        getPendingPurchaseRequests(),
         getRecentResolvedRequests(),
         getBudgetMovements(),
         getProjectStageSummary(),
@@ -461,13 +396,19 @@ export default function DashboardPage() {
       setTasks(tsks)
       setAlerts(alts)
       setCritical(crit)
-      setPending(pend)
       setResolved(res)
       setMovements(movs)
       setStageSummary(summary)
     }
     load()
   }, [tick])
+
+  // Refresh when the notification bell approves/rejects a request
+  useEffect(() => {
+    const handler = () => refresh()
+    window.addEventListener("purchase-request-resolved", handler)
+    return () => window.removeEventListener("purchase-request-resolved", handler)
+  }, [refresh])
 
   if (!project) {
     return (
@@ -508,7 +449,7 @@ export default function DashboardPage() {
   const currentStage = stages.find((s) => s.status === "in_progress" || s.status === "blocked")
   const hasWarnings  = activeAlerts > 0 || criticalPurchases.length > 0 || blockedTasks > 0
 
-  const canApprove = role === "owner" || role === "architect"
+
 
   return (
     <div className="page-wrap space-y-6">
@@ -724,17 +665,6 @@ export default function DashboardPage() {
           <PurchaseNotifications requests={resolvedRequests} />
         )}
       </CollapsibleSection>
-
-      {/* ── Aprobaciones (solo owner/architect) ─────────────────────────── */}
-      {canApprove && (
-        <CollapsibleSection title="Aprobaciones" storageKey="dash:section:aprobaciones">
-          <ApprovalNotif
-            requests={pendingRequests}
-            userName={userName}
-            onAction={refresh}
-          />
-        </CollapsibleSection>
-      )}
 
       {/* ── FAB solicitar compra (solo supervisor) ───────────────────────── */}
       {role === "supervisor" && (

@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useCallback, useEffect, useRef, useState } from "react"
+import { usePathname } from "next/navigation"
 import { AppSidebar } from "./app-sidebar"
 import { createClient } from "@/lib/supabase/client"
 import { getActiveProjectId } from "@/lib/projects-db"
@@ -49,6 +50,7 @@ const fmtDate = (iso: string) => {
 }
 
 function NotificationBell() {
+  const pathname                = usePathname()
   const [role, setRole]         = useState<UserRole | null>(null)
   const [requests, setRequests] = useState<PurchaseRequest[]>([])
   const [userName, setUserName] = useState("")
@@ -78,7 +80,7 @@ function NotificationBell() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, pathname])
 
   useEffect(() => {
     if (!open) return
@@ -95,6 +97,7 @@ function NotificationBell() {
     setLoading(true)
     await approvePurchaseRequest(id, userName)
     await load()
+    window.dispatchEvent(new CustomEvent("purchase-request-resolved"))
     setLoading(false)
   }
 
@@ -102,6 +105,7 @@ function NotificationBell() {
     setLoading(true)
     await rejectPurchaseRequest(id, userName)
     await load()
+    window.dispatchEvent(new CustomEvent("purchase-request-resolved"))
     setLoading(false)
   }
 
