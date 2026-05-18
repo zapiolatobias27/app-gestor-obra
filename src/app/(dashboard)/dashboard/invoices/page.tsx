@@ -85,14 +85,97 @@ const EMPTY_FORM: FormState = {
   photoPreview: null,
 }
 
+// ─── AFIP PDF extractor ───────────────────────────────────────────────────────
+
+function parseArgDate(s: string): string {
+  const m = s.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+  if (!m) return ""
+  return `${m[3]}-${m[2]}-${m[1]}`
+}
+
+function parseAfipLines(lines: string[]): Partial<FormState> {
+  const result: Partial<FormState> = {}
+
+  // Proveedor: name right after ORIGINAL / DUPLICADO / TRIPLICADO
+  const copyTypeIdx = lines.findIndex((l) => ["ORIGINAL", "DUPLICADO", "TRIPLICADO"].includes(l))
+  if (copyTypeIdx !== -1 && lines[copyTypeIdx + 1]) {
+    result.supplier = lines[copyTypeIdx + 1]
+  }
+
+  // N° de factura: "Punto de Venta: 00001 Comp. Nro: 00000013"
+  const pvLine = lines.find((l) => l.includes("Punto de Venta:") && l.includes("Comp. Nro:"))
+  if (pvLine) {
+    const pv  = pvLine.match(/Punto de Venta:\s*(\d+)/)
+    const nro = pvLine.match(/Comp\. Nro:\s*(\d+)/)
+    if (pv && nro) result.invoiceNumber = `${pv[1].replace(/^0+/, "") || pv[1]}-${nro[1]}`
+  }
+
+  // Dates: line with exactly 3 dates "DD/MM/YYYY DD/MM/YYYY DD/MM/YYYY"
+  const threeDatesLine = lines.find((l) => {
+    const m = l.match(/\d{2}\/\d{2}\/\d{4}/g)
+    return m && m.length === 3
+  })
+  if (threeDatesLine) {
+    const dates = threeDatesLine.match(/\d{2}\/\d{2}\/\d{4}/g)!
+    result.dueDate = parseArgDate(dates[2]) // tercera = Fecha Vto pago
+    // Fecha emisión: standalone date on next line
+    const idx = lines.indexOf(threeDatesLine)
+    const next = lines[idx + 1]
+    if (next && /^\d{2}\/\d{2}\/\d{4}$/.test(next)) result.date = parseArgDate(next)
+  }
+
+  // Concepto: first line with "unidades"
+  const itemLine = lines.find((l) => /unidades/i.test(l) && /\d+,\d{2}/.test(l))
+  if (itemLine) {
+    const m = itemLine.match(/^(.+?)\s+\d+[.,]\d{2}\s+unidades/i)
+    if (m) result.description = m[1].trim()
+  }
+
+  // Importe Total: last standalone number before "CAE N°"
+  const caeIdx = lines.findIndex((l) => l.includes("CAE N°"))
+  if (caeIdx > 0) {
+    for (let i = caeIdx - 1; i >= 0; i--) {
+      const clean = lines[i].replace(/[\s$]/g, "")
+      if (/^\d+[.,]\d{2}$/.test(clean)) {
+        result.amount = clean.replace(/\./g, "").replace(",", ".")
+        break
+      }
+    }
+  }
+
+  return result
+}
+
+async function extractFromPdf(file: File): Promise<Partial<FormState>> {
+  try {
+    // Dynamic import — avoids SSR, loads pdfjs only when needed
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf" as string) as typeof import("pdfjs-dist")
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js"
+
+    const buffer = await file.arrayBuffer()
+    const pdf    = await pdfjsLib.getDocument({ data: buffer }).promise
+    const page   = await pdf.getPage(1)
+    const tc     = await page.getTextContent()
+    const lines  = (tc.items as Array<{ str: string }>)
+      .map((i) => i.str.trim())
+      .filter(Boolean)
+
+    return parseAfipLines(lines)
+  } catch {
+    return {}
+  }
+}
+
 export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<EnrichedInvoice[]>([])
   const [purchases, setPurchases] = useState<PurchaseScheduleItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
-  const [submitting, setSubmitting] = useState(false)
-  const [formError, setFormError] = useState("")
+  const [submitting, setSubmitting]   = useState(false)
+  const [extracting, setExtracting]   = useState(false)
+  const [autoFilled, setAutoFilled]   = useState(false)
+  const [formError, setFormError]     = useState("")
   const photoRef = useRef<HTMLInputElement>(null)
   const pdfRef   = useRef<HTMLInputElement>(null)
 
@@ -121,10 +204,36 @@ export default function InvoicesPage() {
     setForm((f) => ({ ...f, photoFile: file, photoPreview: URL.createObjectURL(file) }))
   }
 
+  const handlePdfChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setForm((f) => ({ ...f, photoFile: file, photoPreview: URL.createObjectURL(file) }))
+    setAutoFilled(false)
+    setExtracting(true)
+    try {
+      const extracted = await extractFromPdf(file)
+      if (Object.keys(extracted).length > 0) {
+        setForm((f) => ({
+          ...f,
+          supplier:      extracted.supplier      ?? f.supplier,
+          description:   extracted.description   ?? f.description,
+          amount:        extracted.amount        ?? f.amount,
+          date:          extracted.date          ?? f.date,
+          dueDate:       extracted.dueDate       ?? f.dueDate,
+          invoiceNumber: extracted.invoiceNumber ?? f.invoiceNumber,
+        }))
+        setAutoFilled(true)
+      }
+    } finally {
+      setExtracting(false)
+    }
+  }
+
   const resetForm = () => {
     if (form.photoPreview) URL.revokeObjectURL(form.photoPreview)
     setForm(EMPTY_FORM)
     setFormError("")
+    setAutoFilled(false)
     setShowForm(false)
   }
 
