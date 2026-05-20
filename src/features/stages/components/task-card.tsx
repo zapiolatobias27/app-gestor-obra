@@ -1,9 +1,9 @@
 "use client"
 
-import React, { useState, useRef } from "react"
+import React, { useState, useRef, useEffect } from "react"
 import { Task, TaskStatus, UserRole } from "@/types/project"
 import { SupplyItem } from "@/types/stock"
-import { updateTaskStatus, updateTaskObservations, addPhotoToTask, addSupply, updateSupply, deleteSupply, getSupplies, updateSupplyCurrentStock } from "@/lib/mock-db"
+import { updateTaskStatus, updateTaskObservations, addPhotoToTask, getTaskPhotos, deletePhoto, addSupply, updateSupply, deleteSupply, getSupplies, updateSupplyCurrentStock } from "@/lib/mock-db"
 import { parseNum } from "@/lib/parseNum"
 import { PhotoUpload } from "@/features/photos/components/photo-upload"
 
@@ -274,9 +274,14 @@ function TaskMaterials({ task }: { task: Task }) {
 export function TaskCard({ task, currentUserId, currentUserRole }: TaskCardProps) {
   const [status, setStatus]       = useState<TaskStatus>(task.status)
   const [observations, setObs]    = useState(task.observations ?? "")
-  const [photos, setPhotos]       = useState(task.photos)
+  const [photos, setPhotos]         = useState(task.photos)
   const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [lightboxPhoto, setLightboxPhoto]   = useState<typeof task.photos[0] | null>(null)
   const obsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    getTaskPhotos(task.id).then(setPhotos)
+  }, [task.id])
 
   const handleStatus = async (s: TaskStatus) => {
     setStatus(s)
@@ -294,6 +299,12 @@ export function TaskCard({ task, currentUserId, currentUserRole }: TaskCardProps
     const newPhoto = await addPhotoToTask(task.id, task.stageId, url, caption ?? "", who)
     setPhotos((p) => [...p, newPhoto])
     setShowPhotoModal(false)
+  }
+
+  const handleDeletePhoto = async (photoId: string) => {
+    await deletePhoto(photoId)
+    setPhotos((p) => p.filter((ph) => ph.id !== photoId))
+    if (lightboxPhoto?.id === photoId) setLightboxPhoto(null)
   }
 
   return (
@@ -358,10 +369,25 @@ export function TaskCard({ task, currentUserId, currentUserRole }: TaskCardProps
       <div>
         <span className="obs-label">Registro fotográfico ({photos.length})</span>
         <div className="flex flex-wrap gap-2 mt-1">
-          {photos.slice(0, 5).map((p) => (
-            <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer">
-              <img src={p.url} alt={p.caption ?? "Foto de tarea"} className="photo-thumb" />
-            </a>
+          {photos.map((p) => (
+            <div key={p.id} className="photo-thumb-wrap">
+              <button
+                type="button"
+                className="photo-thumb-btn"
+                onClick={() => setLightboxPhoto(p)}
+                aria-label={p.caption ?? "Ver foto"}
+              >
+                <img src={p.url} alt={p.caption ?? "Foto de tarea"} className="photo-thumb" />
+              </button>
+              <button
+                type="button"
+                className="photo-thumb-delete"
+                onClick={() => handleDeletePhoto(p.id)}
+                aria-label="Eliminar foto"
+              >
+                ✕
+              </button>
+            </div>
           ))}
           <button
             type="button"
@@ -385,6 +411,20 @@ export function TaskCard({ task, currentUserId, currentUserRole }: TaskCardProps
           >
             Cancelar
           </button>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightboxPhoto && (
+        <div className="photo-lightbox" onClick={() => setLightboxPhoto(null)}>
+          <div className="photo-lightbox-inner" onClick={(e) => e.stopPropagation()}>
+            <img src={lightboxPhoto.url} alt={lightboxPhoto.caption ?? "Foto"} className="photo-lightbox-img" />
+            {lightboxPhoto.caption && <p className="photo-lightbox-caption">{lightboxPhoto.caption}</p>}
+            <p className="photo-lightbox-meta">
+              {new Date(lightboxPhoto.uploadedAt).toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" })}
+            </p>
+            <button type="button" className="photo-lightbox-close" onClick={() => setLightboxPhoto(null)}>✕</button>
+          </div>
         </div>
       )}
     </article>

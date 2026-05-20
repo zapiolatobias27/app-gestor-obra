@@ -55,8 +55,9 @@ function mapTask(r: Record<string, unknown>): Task {
 function mapPhoto(r: Record<string, unknown>): Photo {
   return {
     id: r.id as string,
-    taskId: r.task_id as string,
-    stageId: r.stage_id as string,
+    projectId: r.project_id as string | undefined,
+    taskId: r.task_id as string | undefined,
+    stageId: r.stage_id as string | undefined,
     url: r.url as string,
     caption: r.caption as string | undefined,
     uploadedBy: r.uploaded_by as string,
@@ -327,13 +328,53 @@ export async function updateTaskObservations(taskId: string, observations: strin
 
 export async function addPhotoToTask(taskId: string, stageId: string, url: string, caption: string, uploadedBy: string): Promise<Photo> {
   const supabase = createClient()
+  const pid = projectId()
   const { data, error } = await supabase
     .from("photos")
-    .insert({ task_id: taskId, stage_id: stageId, url, caption, uploaded_by: uploadedBy })
+    .insert({ project_id: pid, task_id: taskId, stage_id: stageId, url, caption, uploaded_by: uploadedBy })
     .select()
     .single()
   if (error) throw new Error(error.message)
   return mapPhoto(data)
+}
+
+export async function addPhoto(url: string, caption: string, uploadedBy: string): Promise<Photo> {
+  const supabase = createClient()
+  const pid = projectId()
+  const { data, error } = await supabase
+    .from("photos")
+    .insert({ project_id: pid, url, caption, uploaded_by: uploadedBy })
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapPhoto(data)
+}
+
+export async function deletePhoto(photoId: string): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("photos").delete().eq("id", photoId)
+}
+
+export async function getTaskPhotos(taskId: string): Promise<Photo[]> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from("photos")
+    .select("*")
+    .eq("task_id", taskId)
+    .order("uploaded_at", { ascending: false })
+  return (data ?? []).map(mapPhoto)
+}
+
+export async function getProjectPhotos(): Promise<Photo[]> {
+  const supabase = createClient()
+  const pid = projectId()
+  if (!pid) return []
+  const { data } = await supabase
+    .from("photos")
+    .select("*")
+    .eq("project_id", pid)
+    .order("uploaded_at", { ascending: false })
+  return (data ?? []).map(mapPhoto)
 }
 
 // ─── Supplies ─────────────────────────────────────────────────────────────────

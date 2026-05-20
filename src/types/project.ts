@@ -89,8 +89,9 @@ export interface Task {
 
 export interface Photo {
   id: string
-  taskId: string
-  stageId: string
+  projectId?: string
+  taskId?: string
+  stageId?: string
   url: string
   caption?: string
   uploadedBy: string

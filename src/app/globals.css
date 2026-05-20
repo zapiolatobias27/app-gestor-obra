@@ -712,14 +712,47 @@ body {
   .task-title { font-size: 0.9rem; font-weight: 700; color: var(--stone-900); }
   .task-desc  { font-size: 0.8rem; color: var(--stone-500); margin-top: 0.125rem; }
 
-  .photo-thumb {
-    width: 3rem;
-    height: 3rem;
-    border-radius: 0.375rem;
-    object-fit: cover;
-    border: 1px solid var(--sand-200);
+  .photo-thumb-wrap {
+    position: relative;
     flex-shrink: 0;
   }
+  .photo-thumb-wrap:hover .photo-thumb-delete { opacity: 1; }
+  .photo-thumb-btn {
+    display: block;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .photo-thumb {
+    width: 5rem;
+    height: 5rem;
+    border-radius: 0.5rem;
+    object-fit: cover;
+    border: 1px solid var(--sand-200);
+    display: block;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .photo-thumb-btn:hover .photo-thumb { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .photo-thumb-delete {
+    position: absolute;
+    top: 0.2rem;
+    right: 0.2rem;
+    background: rgba(0,0,0,0.55);
+    color: white;
+    border: none;
+    border-radius: 9999px;
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 0.6rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+  }
+  .photo-thumb-delete:hover { background: rgba(220,38,38,0.85); }
   .photo-add-btn {
     width: 3rem;
     height: 3rem;
@@ -750,6 +783,186 @@ body {
   .responsible-architect { background: #eff6ff; color: #1d4ed8; }
   .responsible-supervisor { background: #fff3e0; color: #b45309; }
   .responsible-owner { background: #f0fdf4; color: #166534; }
+
+  /* ── Photo albums (página de fotos) ── */
+  .photo-album {
+    background: var(--white);
+    border: 1px solid var(--sand-200);
+    border-radius: 0.75rem;
+    overflow: hidden;
+  }
+  .photo-album-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    background: var(--sand-50);
+    border: none;
+    cursor: pointer;
+    text-align: left;
+  }
+  .photo-album-header:hover { background: var(--sand-100); }
+  .photo-album-title {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--stone-700);
+  }
+  .photo-album-code {
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: var(--clay-100);
+    color: var(--clay-600);
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+  }
+  .photo-album-count {
+    font-size: 0.75rem;
+    color: var(--stone-400);
+  }
+  .photo-album-chevron {
+    font-size: 0.65rem;
+    color: var(--stone-400);
+  }
+  .photo-album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.75rem;
+    padding: 1rem;
+  }
+  .photo-album-item {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    border: 1px solid var(--sand-200);
+    text-align: left;
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .photo-album-item:hover { transform: scale(1.02); box-shadow: 0 4px 14px rgba(0,0,0,0.12); }
+  .photo-album-img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    display: block;
+  }
+  .photo-album-caption {
+    font-size: 0.7rem;
+    color: var(--stone-600);
+    padding: 0.375rem 0.5rem;
+    background: var(--white);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── Lightbox ── */
+  .photo-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 1rem;
+  }
+  .photo-lightbox-inner {
+    position: relative;
+    background: var(--white);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .photo-lightbox-img {
+    max-width: 90vw;
+    max-height: 75vh;
+    object-fit: contain;
+    display: block;
+  }
+  .photo-lightbox-caption {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--stone-700);
+    padding: 0.75rem 1rem 0.25rem;
+  }
+  .photo-lightbox-meta {
+    font-size: 0.75rem;
+    color: var(--stone-400);
+    padding: 0 1rem 0.75rem;
+  }
+  .photo-lightbox-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    background: rgba(0,0,0,0.5);
+    color: white;
+    border: none;
+    border-radius: 9999px;
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .photo-lightbox-close:hover { background: rgba(0,0,0,0.75); }
+
+  .photos-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 1rem;
+  }
+  .photos-modal {
+    background: var(--white);
+    border-radius: 0.875rem;
+    width: 100%;
+    max-width: 460px;
+    padding: 1.5rem;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  }
+  .photos-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+  .photos-modal-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--stone-700);
+  }
+  .photos-modal-close {
+    background: var(--sand-100);
+    border: none;
+    border-radius: 9999px;
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.75rem;
+    cursor: pointer;
+    color: var(--stone-500);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .photos-modal-close:hover { background: var(--sand-200); }
 
   .photo-modal-wrap {
     margin-top: 0.75rem;
