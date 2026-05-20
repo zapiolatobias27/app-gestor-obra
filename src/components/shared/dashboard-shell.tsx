@@ -42,7 +42,7 @@ function IconBell() {
 }
 
 const fmt = (n: number) =>
-  new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n)
+  new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n)
 
 const fmtDate = (iso: string) => {
   const d = new Date(iso)

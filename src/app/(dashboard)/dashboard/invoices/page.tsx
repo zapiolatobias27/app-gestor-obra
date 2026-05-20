@@ -8,6 +8,7 @@ import {
   deleteInvoice,
   getPurchases,
 } from "@/lib/mock-db"
+import { parseNum } from "@/lib/parseNum"
 import { getActiveProjectId } from "@/lib/projects-db"
 import { createClient } from "@/lib/supabase/client"
 import type { Invoice, PurchaseScheduleItem } from "@/types/project"
@@ -25,7 +26,8 @@ function fmt(n: number) {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(n)
 }
 
@@ -63,7 +65,6 @@ const PURCHASE_STATUS_LABEL: Record<PurchaseScheduleItem["status"], string> = {
 
 interface FormState {
   supplier: string
-  description: string
   amount: string
   date: string
   dueDate: string
@@ -75,7 +76,6 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   supplier: "",
-  description: "",
   amount: "",
   date: todayStr,
   dueDate: "",
@@ -93,52 +93,90 @@ function parseArgDate(s: string): string {
   return `${m[3]}-${m[2]}-${m[1]}`
 }
 
+function parseAmount(raw: string): string | null {
+  // Handles: "219307,00" / "219.307,00" / "219307.00"
+  const clean = raw.replace(/[\s$]/g, "")
+  if (/^\d[\d.]*,\d{2}$/.test(clean)) {
+    return clean.replace(/\./g, "").replace(",", ".")
+  }
+  if (/^\d+\.\d{2}$/.test(clean)) return clean
+  return null
+}
+
 function parseAfipLines(lines: string[]): Partial<FormState> {
   const result: Partial<FormState> = {}
 
-  // Proveedor: name right after ORIGINAL / DUPLICADO / TRIPLICADO
+  // Supplier: name right after ORIGINAL / DUPLICADO / TRIPLICADO
   const copyTypeIdx = lines.findIndex((l) => ["ORIGINAL", "DUPLICADO", "TRIPLICADO"].includes(l))
   if (copyTypeIdx !== -1 && lines[copyTypeIdx + 1]) {
     result.supplier = lines[copyTypeIdx + 1]
   }
 
-  // N° de factura: "Punto de Venta: 00001 Comp. Nro: 00000013"
-  const pvLine = lines.find((l) => l.includes("Punto de Venta:") && l.includes("Comp. Nro:"))
-  if (pvLine) {
-    const pv  = pvLine.match(/Punto de Venta:\s*(\d+)/)
-    const nro = pvLine.match(/Comp\. Nro:\s*(\d+)/)
+  // Invoice number — may be one line or tokens split across consecutive lines
+  const pvIdx = lines.findIndex((l) => l.includes("Punto de Venta:"))
+  if (pvIdx !== -1) {
+    // Join up to 4 tokens from this index to capture split lines
+    const chunk = lines.slice(pvIdx, pvIdx + 4).join(" ")
+    const pv  = chunk.match(/Punto de Venta:\s*(\d+)/)
+    const nro = chunk.match(/Comp\.?\s*Nro:?\s*(\d+)/)
     if (pv && nro) result.invoiceNumber = `${pv[1].replace(/^0+/, "") || pv[1]}-${nro[1]}`
   }
 
-  // Dates: line with exactly 3 dates "DD/MM/YYYY DD/MM/YYYY DD/MM/YYYY"
+  // Dates: line with exactly 3 dates OR two separate date lines
   const threeDatesLine = lines.find((l) => {
     const m = l.match(/\d{2}\/\d{2}\/\d{4}/g)
     return m && m.length === 3
   })
   if (threeDatesLine) {
     const dates = threeDatesLine.match(/\d{2}\/\d{2}\/\d{4}/g)!
-    result.dueDate = parseArgDate(dates[2]) // tercera = Fecha Vto pago
-    // Fecha emisión: standalone date on next line
+    result.dueDate = parseArgDate(dates[2])
     const idx = lines.indexOf(threeDatesLine)
     const next = lines[idx + 1]
     if (next && /^\d{2}\/\d{2}\/\d{4}$/.test(next)) result.date = parseArgDate(next)
+  } else {
+    // Fallback: emission date near "Fecha de Emisión"
+    const emisIdx = lines.findIndex((l) => l.includes("Fecha de Emisión"))
+    if (emisIdx !== -1) {
+      for (let i = emisIdx + 1; i < Math.min(emisIdx + 4, lines.length); i++) {
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(lines[i])) {
+          result.date = parseArgDate(lines[i])
+          break
+        }
+      }
+    }
+    // Due date: near "Fecha de Vto"
+    const vtoIdx = lines.findIndex((l) => l.includes("Fecha de Vto"))
+    if (vtoIdx !== -1) {
+      for (let i = vtoIdx + 1; i < Math.min(vtoIdx + 4, lines.length); i++) {
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(lines[i])) {
+          result.dueDate = parseArgDate(lines[i])
+          break
+        }
+      }
+    }
   }
 
-  // Concepto: first line with "unidades"
-  const itemLine = lines.find((l) => /unidades/i.test(l) && /\d+,\d{2}/.test(l))
-  if (itemLine) {
-    const m = itemLine.match(/^(.+?)\s+\d+[.,]\d{2}\s+unidades/i)
-    if (m) result.description = m[1].trim()
+  // Amount — primary: look after "Importe Total"
+  const totalIdx = lines.findIndex((l) => /importe total/i.test(l))
+  if (totalIdx !== -1) {
+    for (let i = totalIdx + 1; i < Math.min(totalIdx + 5, lines.length); i++) {
+      const parsed = parseAmount(lines[i])
+      if (parsed) { result.amount = parsed; break }
+    }
+    // Also check if the value is in the same line after "$"
+    if (!result.amount) {
+      const inLine = lines[totalIdx].replace(/^.*\$\s*/, "").trim()
+      const parsed = parseAmount(inLine)
+      if (parsed) result.amount = parsed
+    }
   }
-
-  // Importe Total: last standalone number before "CAE N°"
-  const caeIdx = lines.findIndex((l) => l.includes("CAE N°"))
-  if (caeIdx > 0) {
-    for (let i = caeIdx - 1; i >= 0; i--) {
-      const clean = lines[i].replace(/[\s$]/g, "")
-      if (/^\d+[.,]\d{2}$/.test(clean)) {
-        result.amount = clean.replace(/\./g, "").replace(",", ".")
-        break
+  // Fallback: last standalone number before "CAE N°"
+  if (!result.amount) {
+    const caeIdx = lines.findIndex((l) => l.includes("CAE N°"))
+    if (caeIdx > 0) {
+      for (let i = caeIdx - 1; i >= 0; i--) {
+        const parsed = parseAmount(lines[i])
+        if (parsed) { result.amount = parsed; break }
       }
     }
   }
@@ -176,7 +214,7 @@ export default function InvoicesPage() {
   const [extracting, setExtracting]   = useState(false)
   const [autoFilled, setAutoFilled]   = useState(false)
   const [formError, setFormError]     = useState("")
-  const photoRef = useRef<HTMLInputElement>(null)
+  const [dragOver, setDragOver]       = useState(false)
   const pdfRef   = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -198,15 +236,8 @@ export default function InvoicesPage() {
   const totalVencidas = invoices.filter((i) => i._status === "overdue").length
   const purchasesTotal = purchases.reduce((s, p) => s + (p.realCost ?? p.estimatedCost), 0)
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setForm((f) => ({ ...f, photoFile: file, photoPreview: URL.createObjectURL(file) }))
-  }
-
-  const handlePdfChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handlePdfFile = async (file: File) => {
+    if (file.type !== "application/pdf") return
     setForm((f) => ({ ...f, photoFile: file, photoPreview: URL.createObjectURL(file) }))
     setAutoFilled(false)
     setExtracting(true)
@@ -216,7 +247,6 @@ export default function InvoicesPage() {
         setForm((f) => ({
           ...f,
           supplier:      extracted.supplier      ?? f.supplier,
-          description:   extracted.description   ?? f.description,
           amount:        extracted.amount        ?? f.amount,
           date:          extracted.date          ?? f.date,
           dueDate:       extracted.dueDate       ?? f.dueDate,
@@ -229,18 +259,31 @@ export default function InvoicesPage() {
     }
   }
 
+  const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) handlePdfFile(file)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) handlePdfFile(file)
+  }
+
   const resetForm = () => {
     if (form.photoPreview) URL.revokeObjectURL(form.photoPreview)
     setForm(EMPTY_FORM)
     setFormError("")
     setAutoFilled(false)
+    setDragOver(false)
     setShowForm(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!form.supplier.trim() || !form.description.trim() || !form.amount || !form.date) {
-      setFormError("Completá los campos obligatorios.")
+    if (!form.amount || !form.date) {
+      setFormError("El monto y la fecha son obligatorios.")
       return
     }
     setSubmitting(true)
@@ -265,9 +308,8 @@ export default function InvoicesPage() {
       await addInvoice({
         id,
         projectId: getActiveProjectId(),
-        supplier: form.supplier.trim(),
-        description: form.description.trim(),
-        amount: parseFloat(form.amount),
+        supplier: form.supplier.trim() || "—",
+        amount: parseNum(form.amount),
         date: form.date,
         dueDate: form.dueDate || undefined,
         status: "pending",
@@ -396,203 +438,154 @@ export default function InvoicesPage() {
         </div>
 
         {showForm && (
-          <form
-            onSubmit={handleSubmit}
-            className="mb-6 bg-stone-50 rounded-xl p-4 space-y-4 border border-stone-100"
-          >
+          <div className="mb-6 bg-stone-50 rounded-xl p-4 space-y-4 border border-stone-100">
             <h3 className="font-semibold text-stone-800">Nueva factura</h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Proveedor *
-                </label>
-                <input
-                  type="text"
-                  className="proj-form-input w-full"
-                  value={form.supplier}
-                  onChange={(e) => setForm((f) => ({ ...f, supplier: e.target.value }))}
-                  placeholder="Ej: Hormicenter SA"
-                />
+            {/* Step 1: PDF upload */}
+            {!form.photoFile && !extracting && (
+              <div
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => pdfRef.current?.click()}
+                className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl py-10 cursor-pointer transition-colors
+                  ${dragOver ? "border-stone-400 bg-stone-100" : "border-stone-200 hover:border-stone-300 hover:bg-stone-100/60"}`}
+              >
+                <svg width="36" height="36" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-stone-400">
+                  <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".2" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1.2" fill="none" opacity=".5" />
+                  <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif" opacity=".9">PDF</text>
+                </svg>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-stone-700">Arrastrá o hacé click para subir el PDF</p>
+                  <p className="text-xs text-stone-400 mt-0.5">Los datos se extraen automáticamente</p>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Concepto *
-                </label>
-                <input
-                  type="text"
-                  className="proj-form-input w-full"
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="Ej: Cemento Portland 50 bolsas"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Monto (ARS) *
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="proj-form-input w-full"
-                  value={form.amount}
-                  onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                  placeholder="0"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Fecha *
-                </label>
-                <input
-                  type="date"
-                  className="proj-form-input w-full"
-                  value={form.date}
-                  onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  Fecha de vencimiento
-                </label>
-                <input
-                  type="date"
-                  className="proj-form-input w-full"
-                  value={form.dueDate}
-                  onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
-                  N° de factura
-                </label>
-                <input
-                  type="text"
-                  className="proj-form-input w-full"
-                  value={form.invoiceNumber}
-                  onChange={(e) => setForm((f) => ({ ...f, invoiceNumber: e.target.value }))}
-                  placeholder="Ej: A-0001-00001234"
-                />
-              </div>
-            </div>
+            )}
 
-            <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">Notas</label>
-              <textarea
-                className="proj-form-input w-full resize-none"
-                rows={2}
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                placeholder="Observaciones opcionales…"
-              />
-            </div>
+            {/* Extracting spinner */}
+            {extracting && (
+              <div className="flex items-center justify-center gap-3 py-10">
+                <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity=".3" />
+                  <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                </svg>
+                <span className="text-sm text-stone-500">Leyendo PDF…</span>
+              </div>
+            )}
 
-            {/* Comprobante (imagen o PDF) */}
-            <div>
-              <label className="block text-xs font-medium text-stone-600 mb-2">
-                Comprobante
-              </label>
-              {form.photoFile ? (
-                <div className="flex items-start gap-3">
-                  {form.photoFile.type.startsWith("image/") ? (
-                    <a href={form.photoPreview!} target="_blank" rel="noreferrer">
-                      <img
-                        src={form.photoPreview!}
-                        alt="Vista previa"
-                        className="w-24 h-24 object-cover rounded-lg border border-stone-200 cursor-pointer hover:opacity-80 transition-opacity"
-                      />
-                    </a>
-                  ) : (
-                    <div className="flex items-center gap-2 bg-stone-100 border border-stone-200 rounded-lg px-3 py-2">
-                      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                        <rect x="3" y="1" width="11" height="15" rx="1.5" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1" />
-                        <path d="M11 1v4h4" stroke="#94a3b8" strokeWidth="1" fill="none" />
-                        <text x="5" y="13" fontSize="5" fontWeight="bold" fill="#dc2626" fontFamily="sans-serif">PDF</text>
-                      </svg>
-                      <span className="text-xs text-stone-600 truncate max-w-[140px]">{form.photoFile.name}</span>
-                    </div>
-                  )}
+            {/* Step 2: Form pre-filled from PDF */}
+            {form.photoFile && !extracting && (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* PDF file indicator */}
+                <div className="flex items-center justify-between bg-white border border-stone-200 rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-red-500 shrink-0">
+                      <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".2" stroke="currentColor" strokeWidth="1.2" />
+                      <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1.2" fill="none" opacity=".5" />
+                      <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif">PDF</text>
+                    </svg>
+                    <span className="text-xs text-stone-600 truncate max-w-[200px]">{form.photoFile.name}</span>
+                    {autoFilled && (
+                      <span className="text-xs text-green-600 font-medium">· Datos extraídos</span>
+                    )}
+                  </div>
                   <button
                     type="button"
                     className="proj-btn-ghost-sm"
                     onClick={() => {
                       if (form.photoPreview) URL.revokeObjectURL(form.photoPreview)
-                      setForm((f) => ({ ...f, photoFile: null, photoPreview: null }))
-                      if (photoRef.current) photoRef.current.value = ""
-                      if (pdfRef.current)   pdfRef.current.value   = ""
+                      setForm(EMPTY_FORM)
+                      setAutoFilled(false)
+                      if (pdfRef.current) pdfRef.current.value = ""
                     }}
                   >
-                    Quitar
+                    Cambiar
                   </button>
                 </div>
-              ) : (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    className="proj-btn-ghost-sm"
-                    onClick={() => photoRef.current?.click()}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="inline mr-1">
-                      <rect x="1" y="2" width="12" height="10" rx="1" fill="currentColor" opacity=".4" />
-                      <circle cx="4.5" cy="5.5" r="1" fill="currentColor" opacity=".8" />
-                      <path d="M1 9L4 7L6 8.5L9 6.5L13 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                    </svg>
-                    Foto
-                  </button>
-                  <button
-                    type="button"
-                    className="proj-btn-ghost-sm"
-                    onClick={() => pdfRef.current?.click()}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="inline mr-1">
-                      <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".3" stroke="currentColor" strokeWidth="1" />
-                      <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1" fill="none" opacity=".6" />
-                      <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif">PDF</text>
-                    </svg>
-                    PDF
-                  </button>
-                </div>
-              )}
-              <input
-                ref={photoRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-              <input
-                ref={pdfRef}
-                type="file"
-                accept="application/pdf"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-            </div>
 
-            {formError && (
-              <p className="text-sm text-red-600">{formError}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Proveedor</label>
+                    <input
+                      type="text"
+                      className="proj-form-input w-full"
+                      value={form.supplier}
+                      onChange={(e) => setForm((f) => ({ ...f, supplier: e.target.value }))}
+                      placeholder="Ej: Hormicenter SA"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">N° de factura</label>
+                    <input
+                      type="text"
+                      className="proj-form-input w-full"
+                      value={form.invoiceNumber}
+                      onChange={(e) => setForm((f) => ({ ...f, invoiceNumber: e.target.value }))}
+                      placeholder="Ej: 1-00000013"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Monto (ARS) *</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className="proj-form-input w-full"
+                      value={form.amount}
+                      onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                      placeholder="Ej: 219.307 o 219307"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Fecha *</label>
+                    <input
+                      type="date"
+                      className="proj-form-input w-full"
+                      value={form.date}
+                      onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-600 mb-1">Vencimiento</label>
+                    <input
+                      type="date"
+                      className="proj-form-input w-full"
+                      value={form.dueDate}
+                      onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+                    />
+                  </div>
+                </div>
+
+                {formError && <p className="text-sm text-red-600">{formError}</p>}
+
+                <div className="flex gap-2">
+                  <button type="submit" className="proj-btn-primary" disabled={submitting}>
+                    {submitting ? "Guardando…" : "Guardar factura"}
+                  </button>
+                  <button type="button" className="proj-btn-ghost" onClick={resetForm} disabled={submitting}>
+                    Cancelar
+                  </button>
+                </div>
+              </form>
             )}
 
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                className="proj-btn-primary"
-                disabled={submitting}
-              >
-                {submitting ? "Guardando…" : "Guardar factura"}
-              </button>
-              <button
-                type="button"
-                className="proj-btn-ghost"
-                onClick={resetForm}
-                disabled={submitting}
-              >
-                Cancelar
-              </button>
-            </div>
-          </form>
+            {/* Cancel before PDF selected */}
+            {!form.photoFile && !extracting && (
+              <div className="flex justify-end">
+                <button type="button" className="proj-btn-ghost" onClick={resetForm}>
+                  Cancelar
+                </button>
+              </div>
+            )}
+
+            <input
+              ref={pdfRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={handlePdfChange}
+            />
+          </div>
         )}
 
         {loading ? (
@@ -606,7 +599,6 @@ export default function InvoicesPage() {
                 <tr className="text-left border-b border-stone-100">
                   <th className="pb-2 pr-3 font-medium text-stone-500">N°</th>
                   <th className="pb-2 pr-3 font-medium text-stone-500">Proveedor</th>
-                  <th className="pb-2 pr-3 font-medium text-stone-500">Concepto</th>
                   <th className="pb-2 pr-3 font-medium text-stone-500 text-right">Monto</th>
                   <th className="pb-2 pr-3 font-medium text-stone-500">Fecha</th>
                   <th className="pb-2 pr-3 font-medium text-stone-500">Vencimiento</th>
@@ -620,11 +612,8 @@ export default function InvoicesPage() {
                     <td className="py-2 pr-3 text-stone-400 text-xs tabular-nums">
                       {inv.invoiceNumber ?? "—"}
                     </td>
-                    <td className="py-2 pr-3 font-medium text-stone-800 max-w-[120px] truncate">
+                    <td className="py-2 pr-3 font-medium text-stone-800 max-w-[140px] truncate">
                       {inv.supplier}
-                    </td>
-                    <td className="py-2 pr-3 text-stone-600 max-w-[180px] truncate">
-                      {inv.description}
                     </td>
                     <td className="py-2 pr-3 text-stone-800 font-medium text-right tabular-nums">
                       {fmt(inv.amount)}
@@ -636,39 +625,22 @@ export default function InvoicesPage() {
                       {fmtDate(inv.dueDate)}
                     </td>
                     <td className="py-2 pr-3">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[inv._status]}`}
-                        >
-                          {STATUS_LABEL[inv._status]}
-                        </span>
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[inv._status]}`}>
+                        {STATUS_LABEL[inv._status]}
+                      </span>
+                    </td>
+                    <td className="py-2">
+                      <div className="flex items-center gap-1 flex-wrap">
                         {inv.photoUrl && (
                           <a
                             href={inv.photoUrl}
                             target="_blank"
                             rel="noreferrer"
-                            title={inv.photoUrl.toLowerCase().endsWith(".pdf") ? "Ver PDF" : "Ver imagen"}
-                            className="text-stone-400 hover:text-stone-700 transition-colors"
+                            className="proj-btn-ghost-sm"
                           >
-                            {inv.photoUrl.toLowerCase().endsWith(".pdf") ? (
-                              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                                <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".3" stroke="currentColor" strokeWidth="1" />
-                                <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1" fill="none" opacity=".6" />
-                                <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif">PDF</text>
-                              </svg>
-                            ) : (
-                              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                                <rect x="1" y="2" width="12" height="10" rx="1" fill="currentColor" opacity=".3" />
-                                <circle cx="4.5" cy="5.5" r="1" fill="currentColor" opacity=".8" />
-                                <path d="M1 9L4 7L6 8.5L9 6.5L13 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                              </svg>
-                            )}
+                            Ver PDF
                           </a>
                         )}
-                      </div>
-                    </td>
-                    <td className="py-2">
-                      <div className="flex items-center gap-1">
                         {inv._status !== "paid" && (
                           <button
                             type="button"

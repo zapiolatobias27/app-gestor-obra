@@ -9,6 +9,7 @@ import {
   getProjectByInviteCode, joinProjectByCode,
 } from "@/lib/projects-db"
 import { Project, UserRole, ProjectMember } from "@/types/project"
+import { parseNum } from "@/lib/parseNum"
 
 const ROLE_LABEL: Record<UserRole, string> = {
   owner: "Propietario",
@@ -24,7 +25,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 function fmt(n: number) {
-  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(n)
+  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n)
 }
 
 function fmtDate(iso: string) {
@@ -446,7 +447,7 @@ function NewProjectForm({ userId, userName, userEmail, onCreated }: {
       return
     }
     try {
-      const budgetN = parseFloat(budget.replace(/\./g, "").replace(",", ".")) || 0
+      const budgetN = parseNum(budget)
       const project = await createProject(name.trim(), address.trim(), client.trim(), startDate, budgetN, userName, userEmail, userId)
       setActiveProjectId(project.id)
       onCreated()

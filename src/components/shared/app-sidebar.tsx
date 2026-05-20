@@ -115,6 +115,18 @@ function IconCalendar() {
   )
 }
 
+function IconClipboardList() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="2.5" width="12" height="12" rx="1.5" fill="currentColor" opacity=".4" />
+      <rect x="5.5" y="1" width="5" height="2.5" rx="1" fill="currentColor" opacity=".8" />
+      <path d="M5 7H11M5 9.5H9" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="3.8" cy="7" r="0.8" fill="currentColor" opacity=".8" />
+      <circle cx="3.8" cy="9.5" r="0.8" fill="currentColor" opacity=".8" />
+    </svg>
+  )
+}
+
 export function IconMenu() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -139,9 +151,10 @@ const FULL_ACCESS_NAV: NavItem[] = [
   { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,   section: "Obra" },
   { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,  section: "Obra" },
   { label: "Logística",  href: "/dashboard/logistics",  icon: <IconTruck />,    section: "Obra" },
-  { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,  section: "Obra" },
-  { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />, section: "Obra" },
-  { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,    section: "Registro" },
+  { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Obra" },
+  { label: "Compras",   href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Obra" },
+  { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
+  { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,         section: "Registro" },
   { label: "Importar",   href: "/dashboard/import",     icon: <IconUpload />,   section: "Admin" },
 ]
 
@@ -149,11 +162,12 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
   owner:      FULL_ACCESS_NAV,
   architect:  FULL_ACCESS_NAV,
   supervisor: [
-    { label: "Dashboard",  href: "/dashboard",            icon: <IconDashboard />, section: "General" },
-    { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,   section: "Obra" },
-    { label: "Logística",  href: "/dashboard/logistics",  icon: <IconTruck />,    section: "Obra" },
-    { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />, section: "Obra" },
-    { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,    section: "Registro" },
+    { label: "Dashboard",  href: "/dashboard",            icon: <IconDashboard />,    section: "General" },
+    { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,       section: "Obra" },
+    { label: "Logística",  href: "/dashboard/logistics",  icon: <IconTruck />,        section: "Obra" },
+    { label: "Compras",    href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Obra" },
+    { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
+    { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,        section: "Registro" },
   ],
 }
 

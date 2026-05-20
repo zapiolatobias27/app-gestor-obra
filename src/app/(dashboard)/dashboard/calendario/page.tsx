@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react"
 import {
   getCalendarEvents, getPurchaseCalendarEvents, getStockAlertCalendarEvents,
+  getInvoiceDueDateCalendarEvents,
   addCalendarEvent, deleteCalendarEvent, markCalendarEventPurchased,
   createPurchaseRequest, addDeliveryCalendarEvent, getSupplies,
 } from "@/lib/mock-db"
@@ -14,6 +15,7 @@ const TYPE_LABEL: Record<CalendarEvent["type"], string> = {
   need:     "🏗️ Necesario",
   note:     "📝 Nota",
   delivery: "🚚 Entrega",
+  invoice:  "💳 Vto. Factura",
 }
 
 const DAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
@@ -47,12 +49,14 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
     ev.type === "buy"      ? "cal-chip cal-chip-buy" :
     ev.type === "need"     ? "cal-chip cal-chip-need" :
     ev.type === "delivery" ? "cal-chip cal-chip-delivery" :
+    ev.type === "invoice"  ? "cal-chip cal-chip-invoice" :
                              "cal-chip cal-chip-note"
-  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-")
+  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-")
   const icon =
     ev.type === "buy"      ? "📦" :
     ev.type === "need"     ? "🏗️" :
-    ev.type === "delivery" ? "🚚" : "📝"
+    ev.type === "delivery" ? "🚚" :
+    ev.type === "invoice"  ? "💳" : "📝"
   return (
     <button type="button" className={cls} onClick={onClick}>
       {icon}{" "}
@@ -75,9 +79,10 @@ function EventModal({
   onDeleted: () => void
   onPurchased: () => void
 }) {
-  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-")
+  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-")
   const isStockAlert = ev.id.startsWith("stock-alert-")
   const isDelivery = ev.type === "delivery"
+  const isInvoice = ev.type === "invoice"
   const [desc, setDesc]     = useState(ev.title)
   const [amount, setAmount] = useState(ev.amount?.toString() ?? "")
   const [sending, setSending] = useState(false)
@@ -168,6 +173,20 @@ function EventModal({
           <p className="cal-modal-meta cal-delivery-note">
             ✓ Entrega programada — confirmar recepción en Stock
           </p>
+        )}
+
+        {isInvoice && (
+          <div className="cal-stock-context">
+            {ev.amount != null && (
+              <p className="cal-stock-row">
+                <span className="cal-stock-label">Monto:</span>
+                <strong>{new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(ev.amount)}</strong>
+              </p>
+            )}
+            <p className="cal-modal-meta" style={{ marginTop: "0.5rem", color: "#7c2d12" }}>
+              Factura pendiente de pago — ver detalles en Facturas
+            </p>
+          </div>
         )}
 
         {ev.type === "buy" && (
@@ -324,13 +343,14 @@ export default function CalendarioPage() {
   const [addDate, setAddDate] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
-    const [manual, auto, stockAlerts, sups] = await Promise.all([
+    const [manual, auto, stockAlerts, invoiceDues, sups] = await Promise.all([
       getCalendarEvents(),
       getPurchaseCalendarEvents(),
       getStockAlertCalendarEvents(),
+      getInvoiceDueDateCalendarEvents(),
       getSupplies(),
     ])
-    setAllEvents([...auto, ...stockAlerts, ...manual])
+    setAllEvents([...auto, ...stockAlerts, ...invoiceDues, ...manual])
     setSupplies(sups)
   }, [])
 
@@ -381,6 +401,7 @@ export default function CalendarioPage() {
         <span className="cal-chip cal-chip-buy">📦 Comprar</span>
         <span className="cal-chip cal-chip-need">🏗️ Necesario</span>
         <span className="cal-chip cal-chip-delivery">🚚 Entrega</span>
+        <span className="cal-chip cal-chip-invoice">💳 Vto. Factura</span>
         <span className="cal-chip cal-chip-note">📝 Nota</span>
         <span className="cal-legend-auto">• = automático</span>
       </div>

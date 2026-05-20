@@ -16,7 +16,7 @@ const STEPS: { key: StepKey; label: string; desc: string }[] = [
 
 function fmt(n: number) {
   return new Intl.NumberFormat("es-AR", {
-    style: "currency", currency: "ARS", maximumFractionDigits: 0,
+    style: "currency", currency: "ARS", minimumFractionDigits: 0, maximumFractionDigits: 2,
   }).format(n)
 }
 

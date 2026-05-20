@@ -18,6 +18,7 @@ import {
 } from "@/lib/mock-db"
 import { TaskStatus, UserRole, PurchaseRequest, BudgetMovement } from "@/types/project"
 import { getActiveProjectId } from "@/lib/projects-db"
+import { parseNum } from "@/lib/parseNum"
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   pending: "Pendiente",
@@ -37,7 +38,8 @@ function fmt(n: number) {
   return new Intl.NumberFormat("es-AR", {
     style: "currency",
     currency: "ARS",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(n)
 }
 
@@ -85,8 +87,8 @@ function DailyCashBox({ role, tick }: DailyCashBoxProps) {
   const canEdit = role === "owner" || role === "architect"
 
   const handleSave = useCallback(async () => {
-    const parsed = parseFloat(amount.replace(/\./g, "").replace(",", "."))
-    if (isNaN(parsed)) return
+    const parsed = parseNum(amount)
+    if (parsed <= 0) return
     await upsertDailyBudgetEntry({ date: today, amount: parsed, note: note.trim() || undefined })
     setSavedAmount(parsed)
     setSavedNote(note.trim())
@@ -104,8 +106,9 @@ function DailyCashBox({ role, tick }: DailyCashBoxProps) {
         <div className="daily-input-wrap">
           <input
             className="daily-input"
-            type="number"
-            placeholder="Monto disponible ($)"
+            type="text"
+            inputMode="decimal"
+            placeholder="Monto disponible (Ej: 50.000)"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             autoFocus
@@ -222,8 +225,8 @@ function PurchaseRequestModal({ userName, onCreated, onClose }: PurchaseRequestM
   const [amount, setAmount] = useState("")
 
   const handleSend = useCallback(async () => {
-    const parsed = parseFloat(amount.replace(/\./g, "").replace(",", "."))
-    if (!desc.trim() || isNaN(parsed) || parsed <= 0) return
+    const parsed = parseNum(amount)
+    if (!desc.trim() || parsed <= 0) return
     await createPurchaseRequest(desc.trim(), parsed, userName)
     onCreated()
     onClose()
@@ -244,8 +247,9 @@ function PurchaseRequestModal({ userName, onCreated, onClose }: PurchaseRequestM
         />
         <input
           className="daily-input"
-          type="number"
-          placeholder="Monto ($)"
+          type="text"
+          inputMode="decimal"
+          placeholder="Monto (Ej: 50.000)"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") handleSend() }}

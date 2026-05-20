@@ -4,6 +4,7 @@ import React, { useState, useRef } from "react"
 import { Task, TaskStatus, UserRole } from "@/types/project"
 import { SupplyItem } from "@/types/stock"
 import { updateTaskStatus, updateTaskObservations, addPhotoToTask, addSupply, updateSupply, deleteSupply, getSupplies, updateSupplyCurrentStock } from "@/lib/mock-db"
+import { parseNum } from "@/lib/parseNum"
 
 interface TaskCardProps {
   task: Task
@@ -68,9 +69,9 @@ function TaskMaterials({ task }: { task: Task }) {
       taskId: task.id,
       name: name.trim(),
       unit: unit.trim(),
-      plannedQty: parseFloat(qty) || 0,
+      plannedQty: parseNum(qty),
       realQty: 0,
-      currentStock: parseFloat(stock) || undefined,
+      currentStock: parseNum(stock) || undefined,
     })
     setName(""); setUnit(""); setQty(""); setStock(""); setFormErr("")
     setShowAdd(false)
@@ -88,13 +89,13 @@ function TaskMaterials({ task }: { task: Task }) {
   }
 
   const saveEdit = async (s: SupplyItem) => {
-    await updateSupply({ ...s, plannedQty: parseFloat(editQty) || 0 })
+    await updateSupply({ ...s, plannedQty: parseNum(editQty) })
     setEditingId(null)
     reload()
   }
 
   const handleUse = async (s: SupplyItem) => {
-    const amount = parseFloat(useAmounts[s.id] || "0") || 0
+    const amount = parseNum(useAmounts[s.id])
     if (amount <= 0) return
     const current = s.currentStock ?? 0
     const newStock = Math.max(0, current - amount)
@@ -146,7 +147,8 @@ function TaskMaterials({ task }: { task: Task }) {
                     <td className="task-mat-td text-right tabular-nums">
                       {editingId === s.id ? (
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           className="task-mat-input"
                           value={editQty}
                           aria-label={`Cantidad planificada de ${s.name}`}
@@ -178,8 +180,8 @@ function TaskMaterials({ task }: { task: Task }) {
                     <td className="task-mat-td">
                       <div className="task-mat-use-row">
                         <input
-                          type="number"
-                          min={0}
+                          type="text"
+                          inputMode="decimal"
                           className="task-mat-input task-mat-use-input"
                           placeholder="0"
                           aria-label={`Cantidad a usar de ${s.name}`}
@@ -192,7 +194,7 @@ function TaskMaterials({ task }: { task: Task }) {
                           className="task-mat-use-btn"
                           onClick={() => handleUse(s)}
                           title="Descontar del stock"
-                          disabled={!(parseFloat(useAmounts[s.id] || "0") > 0)}
+                          disabled={!(parseNum(useAmounts[s.id]) > 0)}
                         >
                           −
                         </button>
@@ -230,16 +232,16 @@ function TaskMaterials({ task }: { task: Task }) {
                 <input
                   className="proj-form-input task-mat-add-qty"
                   placeholder="Planif."
-                  type="number"
-                  min={0}
+                  type="text"
+                  inputMode="decimal"
                   value={qty}
                   onChange={(e) => setQty(e.target.value)}
                 />
                 <input
                   className="proj-form-input task-mat-add-qty"
                   placeholder="Stock"
-                  type="number"
-                  min={0}
+                  type="text"
+                  inputMode="decimal"
                   value={stock}
                   onChange={(e) => setStock(e.target.value)}
                 />

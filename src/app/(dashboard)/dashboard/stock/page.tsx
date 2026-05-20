@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 import { getSupplies, getStages, getTasks, addSupply, deleteSupply } from "@/lib/mock-db"
+import { parseNum } from "@/lib/parseNum"
 import { StockEditor } from "@/features/import/components/stock-editor"
 import { checkAllDeviations, formatDeviation } from "@/features/stock/logic/deviation-check"
 import { StockTable } from "@/features/stock/components/stock-table"
@@ -51,9 +52,9 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
       taskId: taskId || undefined,
       name: name.trim(),
       unit: unit.trim(),
-      plannedQty: parseFloat(qty) || 0,
+      plannedQty: parseNum(qty),
       realQty: 0,
-      currentStock: parseFloat(stock) || undefined,
+      currentStock: parseNum(stock) || undefined,
     })
     setName(""); setUnit(""); setQty(""); setStock(""); setError("")
     onAdded()
@@ -129,8 +130,8 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
           <label className="proj-form-label" htmlFor="sup-qty">Cantidad planificada</label>
           <input
             id="sup-qty"
-            type="number"
-            min={0}
+            type="text"
+            inputMode="decimal"
             className="proj-form-input"
             value={qty}
             onChange={(e) => setQty(e.target.value)}
@@ -143,8 +144,8 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
           </label>
           <input
             id="sup-stock"
-            type="number"
-            min={0}
+            type="text"
+            inputMode="decimal"
             className="proj-form-input"
             value={stock}
             onChange={(e) => setStock(e.target.value)}

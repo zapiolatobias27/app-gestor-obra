@@ -130,13 +130,14 @@ export interface CalendarEvent {
   id: string
   date: string              // "YYYY-MM-DD"
   title: string
-  type: "buy" | "need" | "note" | "delivery"
+  type: "buy" | "need" | "note" | "delivery" | "invoice"
   material?: string
   amount?: number
   purchaseRequestId?: string // si ya se hizo el pedido
   purchaseId?: string        // si viene de PurchaseScheduleItem (auto)
   supplyId?: string          // si viene de alerta de stock bajo
   deliveryDays?: number      // días de plazo del proveedor
+  invoiceId?: string         // si viene de vencimiento de factura
   createdBy: string
   createdAt: string
 }
@@ -153,7 +154,7 @@ export interface Invoice {
   id: string
   projectId: string
   supplier: string
-  description: string
+  description?: string
   amount: number
   date: string              // YYYY-MM-DD
   dueDate?: string          // YYYY-MM-DD

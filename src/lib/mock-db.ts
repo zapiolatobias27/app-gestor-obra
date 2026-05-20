@@ -468,6 +468,8 @@ export async function addPurchase(purchase: PurchaseScheduleItem): Promise<void>
 export async function updatePurchase(purchase: PurchaseScheduleItem): Promise<void> {
   const supabase = createClient()
   await supabase.from("purchase_schedule").update({
+    stage_id: purchase.stageId,
+    task_id: purchase.taskId ?? null,
     material: purchase.material,
     unit: purchase.unit,
     quantity: purchase.quantity,
@@ -649,14 +651,17 @@ export async function getPurchaseCalendarEvents(): Promise<CalendarEvent[]> {
 
   for (const p of purchases) {
     if (p.status === "delivered") continue
-    const needDate = weekToDate(project.startDate, p.deliveryWeek)
-    const buyDate = (() => {
-      const d = new Date(needDate + "T12:00:00")
-      d.setDate(d.getDate() - 7)
-      return d.toISOString().slice(0, 10)
-    })()
-    events.push({ id: `auto-need-${p.id}`, date: needDate, title: p.material, type: "need", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
-    events.push({ id: `auto-buy-${p.id}`, date: buyDate, title: p.material, type: "buy", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+    if (!p.deliveryWeek || p.deliveryWeek <= 0) continue
+    const needBase = new Date(weekToDate(project.startDate, p.deliveryWeek) + "T12:00:00")
+    const buyBase  = new Date(needBase)
+    buyBase.setDate(buyBase.getDate() - 7)
+
+    for (let i = 0; i < 7; i++) {
+      const buyDay  = new Date(buyBase);  buyDay.setDate(buyBase.getDate()  + i)
+      const needDay = new Date(needBase); needDay.setDate(needBase.getDate() + i)
+      events.push({ id: `auto-buy-${p.id}-d${i}`,  date: buyDay.toISOString().slice(0, 10),  title: p.material, type: "buy",  material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+      events.push({ id: `auto-need-${p.id}-d${i}`, date: needDay.toISOString().slice(0, 10), title: p.material, type: "need", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+    }
   }
   return events
 }
@@ -754,6 +759,22 @@ export async function resetDB(): Promise<void> {
   localStorage.removeItem("obra:active-project")
 }
 
+export async function getInvoiceDueDateCalendarEvents(): Promise<CalendarEvent[]> {
+  const invoices = await getInvoices()
+  return invoices
+    .filter((inv) => inv.dueDate && inv.status !== "paid")
+    .map((inv) => ({
+      id: `invoice-${inv.id}`,
+      date: inv.dueDate!,
+      title: inv.supplier + (inv.invoiceNumber ? ` · N°${inv.invoiceNumber}` : ""),
+      type: "invoice" as const,
+      amount: inv.amount,
+      invoiceId: inv.id,
+      createdBy: "",
+      createdAt: "",
+    }))
+}
+
 // ─── Invoices ─────────────────────────────────────────────────────────────────
 
 function mapInvoice(r: Record<string, unknown>): Invoice {
@@ -761,7 +782,7 @@ function mapInvoice(r: Record<string, unknown>): Invoice {
     id: r.id as string,
     projectId: r.project_id as string,
     supplier: r.supplier as string,
-    description: r.description as string,
+    description: (r.description as string | null) ?? undefined,
     amount: r.amount as number,
     date: r.date as string,
     dueDate: (r.due_date as string | null) ?? undefined,
@@ -791,7 +812,7 @@ export async function addInvoice(invoice: Invoice): Promise<void> {
     id: invoice.id,
     project_id: pid,
     supplier: invoice.supplier,
-    description: invoice.description,
+    description: invoice.description ?? "",
     amount: invoice.amount,
     date: invoice.date,
     due_date: invoice.dueDate ?? null,

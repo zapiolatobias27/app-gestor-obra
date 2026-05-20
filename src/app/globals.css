@@ -1129,6 +1129,8 @@ body {
   .cal-chip-note:hover { background: var(--stone-200); }
   .cal-chip-delivery { background: #d1fae5; color: #065f46; }
   .cal-chip-delivery:hover { background: #a7f3d0; }
+  .cal-chip-invoice { background: #ffedd5; color: #7c2d12; }
+  .cal-chip-invoice:hover { background: #fed7aa; }
   .cal-chip-check { color: #16a34a; font-weight: 700; }
   .cal-chip-auto  { color: var(--stone-400); }
 
