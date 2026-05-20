@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { getSupplies, getStages, getTasks, addSupply, deleteSupply } from "@/lib/mock-db"
 import { parseNum } from "@/lib/parseNum"
 import { StockEditor } from "@/features/import/components/stock-editor"
@@ -16,53 +16,55 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
   const [tasks, setTasks]   = useState<Task[]>([])
 
   useEffect(() => {
-    async function load() {
-      const [s, t] = await Promise.all([getStages(), getTasks()])
-      setStages(s)
-      setTasks(t)
-    }
-    load()
+    Promise.all([getStages(), getTasks()]).then(([s, t]) => { setStages(s); setTasks(t) })
   }, [])
 
-  const [stageId, setStageId] = useState("")
-  const [taskId,  setTaskId]  = useState("")
-  const [name,    setName]    = useState("")
-  const [unit,    setUnit]    = useState("")
-  const [qty,     setQty]     = useState("")
-  const [stock,   setStock]   = useState("")
-  const [error,   setError]   = useState("")
+  const [stageId,    setStageId]   = useState("")
+  const [taskId,     setTaskId]    = useState("")
+  const [name,       setName]      = useState("")
+  const [unit,       setUnit]      = useState("")
+  const [qty,        setQty]       = useState("")
+  const [stock,      setStock]     = useState("")
+  const [error,      setError]     = useState("")
+  const [lastAdded,  setLastAdded] = useState("")
+  const nameRef = useRef<HTMLInputElement>(null)
 
-  const stageTasks = stageId
-    ? tasks.filter((t) => t.stageId === stageId)
-    : []
+  const stageTasks = stageId ? tasks.filter((t) => t.stageId === stageId) : []
 
-  const handleStageChange = (id: string) => {
-    setStageId(id)
-    setTaskId("")
-  }
+  const handleStageChange = (id: string) => { setStageId(id); setTaskId("") }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!stageId)     { setError("Seleccioná una etapa."); return }
     if (!name.trim()) { setError("Ingresá el nombre del material."); return }
     if (!unit.trim()) { setError("Ingresá la unidad."); return }
+    const addedName = name.trim()
     await addSupply({
       id: `sup-${Date.now()}`,
       stageId,
       taskId: taskId || undefined,
-      name: name.trim(),
+      name: addedName,
       unit: unit.trim(),
       plannedQty: parseNum(qty),
       realQty: 0,
       currentStock: parseNum(stock) || undefined,
     })
+    // Limpiar solo nombre/unidad/cantidades — etapa y tarea quedan seleccionadas
     setName(""); setUnit(""); setQty(""); setStock(""); setError("")
+    setLastAdded(addedName)
+    setTimeout(() => setLastAdded(""), 2500)
+    nameRef.current?.focus()
     onAdded()
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      {error && <p className="proj-form-error">{error}</p>}
+      {error     && <p className="proj-form-error">{error}</p>}
+      {lastAdded && (
+        <p className="text-sm font-medium" style={{ color: "var(--clay-600)" }}>
+          ✓ {lastAdded} agregado — podés seguir cargando materiales
+        </p>
+      )}
 
       {/* Etapa */}
       <div className="proj-form-field">
@@ -80,7 +82,7 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
         </select>
       </div>
 
-      {/* Tarea (opcional, aparece al elegir etapa) */}
+      {/* Tarea (opcional) */}
       {stageId && (
         <div className="proj-form-field">
           <label className="proj-form-label" htmlFor="sup-task">
@@ -109,11 +111,13 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
         <div className="proj-form-field col-span-2">
           <label className="proj-form-label" htmlFor="sup-name">Material *</label>
           <input
+            ref={nameRef}
             id="sup-name"
             className="proj-form-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ej: Cemento Portland"
+            autoFocus
           />
         </div>
         <div className="proj-form-field">
@@ -140,7 +144,7 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
         </div>
         <div className="proj-form-field col-span-2">
           <label className="proj-form-label" htmlFor="sup-stock">
-            Stock actual disponible <span className="text-stone-400 font-normal">(opcional)</span>
+            Stock actual <span className="text-stone-400 font-normal">(opcional)</span>
           </label>
           <input
             id="sup-stock"
@@ -154,7 +158,7 @@ function AddSupplyForm({ onAdded }: { onAdded: () => void }) {
         </div>
       </div>
 
-      <button type="submit" className="proj-btn-primary">Agregar material</button>
+      <button type="submit" className="proj-btn-primary">Agregar y continuar</button>
     </form>
   )
 }
@@ -188,7 +192,6 @@ export default function StockPage() {
 
   const refresh = () => {
     setRefreshKey((k) => k + 1)
-    setShowAddForm(false)
     setEditingSupply(null)
   }
 

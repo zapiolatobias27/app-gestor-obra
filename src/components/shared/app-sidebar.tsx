@@ -163,6 +163,7 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
   supervisor: [
     { label: "Dashboard",  href: "/dashboard",            icon: <IconDashboard />,    section: "General" },
     { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,       section: "Obra" },
+    { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,      section: "Obra" },
     { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
     { label: "Compras",    href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
     { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
