@@ -5,6 +5,7 @@ import { Task, TaskStatus, UserRole } from "@/types/project"
 import { SupplyItem } from "@/types/stock"
 import { updateTaskStatus, updateTaskObservations, addPhotoToTask, addSupply, updateSupply, deleteSupply, getSupplies, updateSupplyCurrentStock } from "@/lib/mock-db"
 import { parseNum } from "@/lib/parseNum"
+import { PhotoUpload } from "@/features/photos/components/photo-upload"
 
 interface TaskCardProps {
   task: Task
@@ -275,8 +276,6 @@ export function TaskCard({ task, currentUserId, currentUserRole }: TaskCardProps
   const [observations, setObs]    = useState(task.observations ?? "")
   const [photos, setPhotos]       = useState(task.photos)
   const [showPhotoModal, setShowPhotoModal] = useState(false)
-  const [photoUrl, setPhotoUrl]   = useState("")
-  const [photoCaption, setPhotoCaption] = useState("")
   const obsTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const handleStatus = async (s: TaskStatus) => {
@@ -290,13 +289,10 @@ export function TaskCard({ task, currentUserId, currentUserRole }: TaskCardProps
     obsTimer.current = setTimeout(() => { updateTaskObservations(task.id, val) }, 600)
   }
 
-  const handleAddPhoto = async () => {
-    if (!photoUrl.trim()) return
+  const handleAddPhoto = async (url: string, caption?: string) => {
     const who = currentUserId ?? "user"
-    const newPhoto = await addPhotoToTask(task.id, task.stageId, photoUrl.trim(), photoCaption, who)
+    const newPhoto = await addPhotoToTask(task.id, task.stageId, url, caption ?? "", who)
     setPhotos((p) => [...p, newPhoto])
-    setPhotoUrl("")
-    setPhotoCaption("")
     setShowPhotoModal(false)
   }
 
@@ -381,35 +377,14 @@ export function TaskCard({ task, currentUserId, currentUserRole }: TaskCardProps
       {/* Modal agregar foto */}
       {showPhotoModal && (
         <div className="photo-modal-wrap space-y-2">
-          <p className="obs-label">Nueva foto</p>
-          <input
-            type="url"
-            value={photoUrl}
-            onChange={(e) => setPhotoUrl(e.target.value)}
-            placeholder="URL de la imagen..."
-            className="login-input"
-            aria-label="URL de imagen"
-          />
-          <input
-            type="text"
-            value={photoCaption}
-            onChange={(e) => setPhotoCaption(e.target.value)}
-            placeholder="Descripción (opcional)"
-            className="login-input"
-            aria-label="Descripción de foto"
-          />
-          <div className="flex gap-2">
-            <button type="button" onClick={handleAddPhoto} className="login-btn photo-modal-save">
-              Guardar foto
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowPhotoModal(false)}
-              className="status-btn status-btn-pending flex-1"
-            >
-              Cancelar
-            </button>
-          </div>
+          <PhotoUpload onUpload={handleAddPhoto} />
+          <button
+            type="button"
+            onClick={() => setShowPhotoModal(false)}
+            className="status-btn status-btn-pending w-full"
+          >
+            Cancelar
+          </button>
         </div>
       )}
     </article>

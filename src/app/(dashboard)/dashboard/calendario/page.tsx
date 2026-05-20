@@ -60,7 +60,7 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
     ev.type === "delivery" ? "🚚" :
     ev.type === "invoice"  ? "💳" : "📝"
   return (
-    <button type="button" className={cls} onClick={onClick}>
+    <button type="button" className={cls} onClick={(e) => { e.stopPropagation(); onClick() }}>
       {icon}{" "}
       {isOverdue ? `Vencido: ${ev.title}` : ev.title}
       {ev.purchaseRequestId && <span className="cal-chip-check"> ✓</span>}
