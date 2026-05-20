@@ -115,6 +115,17 @@ function IconCalendar() {
   )
 }
 
+function IconUsers() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="6" cy="5" r="2.5" fill="currentColor" opacity=".7" />
+      <path d="M1 13c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+      <circle cx="12" cy="5.5" r="2" fill="currentColor" opacity=".45" />
+      <path d="M14 12.5c0-1.66-1.34-3-3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function IconClipboardList() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -150,6 +161,7 @@ const FULL_ACCESS_NAV: NavItem[] = [
   { label: "Dashboard",  href: "/dashboard",            icon: <IconDashboard />, section: "General" },
   { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,   section: "Obra" },
   { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,  section: "Obra" },
+  { label: "Proveedores", href: "/dashboard/proveedores", icon: <IconUsers />,         section: "Administración" },
   { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
   { label: "Compras",   href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
   { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
@@ -164,6 +176,7 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Dashboard",  href: "/dashboard",            icon: <IconDashboard />,    section: "General" },
     { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,       section: "Obra" },
     { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,      section: "Obra" },
+    { label: "Proveedores", href: "/dashboard/proveedores", icon: <IconUsers />,         section: "Administración" },
     { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
     { label: "Compras",    href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
     { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },

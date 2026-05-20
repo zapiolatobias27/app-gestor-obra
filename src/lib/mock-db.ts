@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client"
 import { getActiveProjectId } from "./projects-db"
-import type { Project, Stage, Task, Photo, PurchaseScheduleItem, DailyBudgetEntry, PurchaseRequest, BudgetMovement, CalendarEvent, Invoice } from "@/types/project"
+import type { Project, Stage, Task, Photo, Provider, PurchaseScheduleItem, DailyBudgetEntry, PurchaseRequest, BudgetMovement, CalendarEvent, Invoice } from "@/types/project"
 import type { SupplyItem, AuditAlert } from "@/types/stock"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -910,5 +910,74 @@ export async function updateInvoiceStatus(id: string, status: Invoice["status"])
 export async function deleteInvoice(id: string): Promise<void> {
   const supabase = createClient()
   const { error } = await supabase.from("invoices").delete().eq("id", id)
+  if (error) throw new Error(error.message)
+}
+
+// ─── Proveedores ──────────────────────────────────────────────────────────────
+
+function mapProvider(r: Record<string, unknown>): Provider {
+  return {
+    id: r.id as string,
+    projectId: r.project_id as string,
+    name: r.name as string,
+    phone: r.phone as string | undefined,
+    email: r.email as string | undefined,
+    contactName: r.contact_name as string | undefined,
+    supplies: r.supplies as string | undefined,
+    address: r.address as string | undefined,
+    notes: r.notes as string | undefined,
+    createdAt: r.created_at as string,
+  }
+}
+
+export async function getProviders(): Promise<Provider[]> {
+  const supabase = createClient()
+  const pid = projectId()
+  if (!pid) return []
+  const { data } = await supabase
+    .from("providers")
+    .select("*")
+    .eq("project_id", pid)
+    .order("name", { ascending: true })
+  return (data ?? []).map(mapProvider)
+}
+
+export async function addProvider(p: Omit<Provider, "id" | "createdAt">): Promise<Provider> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from("providers")
+    .insert({
+      project_id:   p.projectId,
+      name:         p.name,
+      phone:        p.phone ?? null,
+      email:        p.email ?? null,
+      contact_name: p.contactName ?? null,
+      supplies:     p.supplies ?? null,
+      address:      p.address ?? null,
+      notes:        p.notes ?? null,
+    })
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapProvider(data)
+}
+
+export async function updateProvider(p: Provider): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from("providers").update({
+    name:         p.name,
+    phone:        p.phone ?? null,
+    email:        p.email ?? null,
+    contact_name: p.contactName ?? null,
+    supplies:     p.supplies ?? null,
+    address:      p.address ?? null,
+    notes:        p.notes ?? null,
+  }).eq("id", p.id)
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteProvider(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from("providers").delete().eq("id", id)
   if (error) throw new Error(error.message)
 }

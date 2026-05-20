@@ -87,6 +87,19 @@ export interface Task {
   completedAt?: string
 }
 
+export interface Provider {
+  id: string
+  projectId: string
+  name: string
+  phone?: string
+  email?: string
+  contactName?: string
+  supplies?: string
+  address?: string
+  notes?: string
+  createdAt: string
+}
+
 export interface Photo {
   id: string
   projectId?: string
