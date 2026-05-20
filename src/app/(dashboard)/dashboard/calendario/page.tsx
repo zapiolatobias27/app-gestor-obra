@@ -45,14 +45,16 @@ function getMonthGrid(year: number, month: number): Date[] {
 // ─── Event chip ───────────────────────────────────────────────────────────────
 
 function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) {
+  const isOverdue = ev.id.startsWith("overdue-")
   const cls =
+    isOverdue              ? "cal-chip cal-chip-overdue" :
     ev.type === "buy"      ? "cal-chip cal-chip-buy" :
     ev.type === "need"     ? "cal-chip cal-chip-need" :
     ev.type === "delivery" ? "cal-chip cal-chip-delivery" :
     ev.type === "invoice"  ? "cal-chip cal-chip-invoice" :
                              "cal-chip cal-chip-note"
-  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-")
-  const icon =
+  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-") || ev.id.startsWith("overdue-")
+  const icon = isOverdue ? "⚠️" :
     ev.type === "buy"      ? "📦" :
     ev.type === "need"     ? "🏗️" :
     ev.type === "delivery" ? "🚚" :
@@ -60,7 +62,7 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
   return (
     <button type="button" className={cls} onClick={onClick}>
       {icon}{" "}
-      {ev.title}
+      {isOverdue ? `Vencido: ${ev.title}` : ev.title}
       {ev.purchaseRequestId && <span className="cal-chip-check"> ✓</span>}
       {isAuto && <span className="cal-chip-auto"> •</span>}
     </button>
@@ -402,6 +404,7 @@ export default function CalendarioPage() {
         <span className="cal-chip cal-chip-need">🏗️ Necesario</span>
         <span className="cal-chip cal-chip-delivery">🚚 Entrega</span>
         <span className="cal-chip cal-chip-invoice">💳 Vto. Factura</span>
+        <span className="cal-chip cal-chip-overdue">⚠️ Vencido</span>
         <span className="cal-chip cal-chip-note">📝 Nota</span>
         <span className="cal-legend-auto">• = automático</span>
       </div>

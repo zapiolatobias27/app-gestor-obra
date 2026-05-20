@@ -649,18 +649,38 @@ export async function getPurchaseCalendarEvents(): Promise<CalendarEvent[]> {
   const purchases = await getPurchases()
   const events: CalendarEvent[] = []
 
+  const today = new Date(); today.setHours(12, 0, 0, 0)
+  const todayStr = today.toISOString().slice(0, 10)
+
   for (const p of purchases) {
     if (p.status === "delivered") continue
     if (!p.deliveryWeek || p.deliveryWeek <= 0) continue
+
     const needBase = new Date(weekToDate(project.startDate, p.deliveryWeek) + "T12:00:00")
     const buyBase  = new Date(needBase)
     buyBase.setDate(buyBase.getDate() - 7)
 
-    for (let i = 0; i < 7; i++) {
-      const buyDay  = new Date(buyBase);  buyDay.setDate(buyBase.getDate()  + i)
-      const needDay = new Date(needBase); needDay.setDate(needBase.getDate() + i)
-      events.push({ id: `auto-buy-${p.id}-d${i}`,  date: buyDay.toISOString().slice(0, 10),  title: p.material, type: "buy",  material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
-      events.push({ id: `auto-need-${p.id}-d${i}`, date: needDay.toISOString().slice(0, 10), title: p.material, type: "need", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+    const buyWeekEnd  = new Date(buyBase); buyWeekEnd.setDate(buyBase.getDate() + 6)
+    const buyWeekPast = buyWeekEnd < today
+    const notOrdered  = p.status === "pending" || p.status === "critical"
+
+    if (buyWeekPast && notOrdered) {
+      // Semana de compra vencida sin pedir → chip de vencido hoy
+      events.push({ id: `overdue-${p.id}`, date: todayStr, title: p.material, type: "buy", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+    } else if (!buyWeekPast) {
+      // Semana de compra actual o futura → 7 chips de compra
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(buyBase); d.setDate(buyBase.getDate() + i)
+        events.push({ id: `auto-buy-${p.id}-d${i}`, date: d.toISOString().slice(0, 10), title: p.material, type: "buy", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+      }
+    }
+
+    // Chips de entrega (need): solo si no está vencido-sin-pedir
+    if (!(buyWeekPast && notOrdered)) {
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(needBase); d.setDate(needBase.getDate() + i)
+        events.push({ id: `auto-need-${p.id}-d${i}`, date: d.toISOString().slice(0, 10), title: p.material, type: "need", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+      }
     }
   }
   return events

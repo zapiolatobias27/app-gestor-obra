@@ -1131,6 +1131,8 @@ body {
   .cal-chip-delivery:hover { background: #a7f3d0; }
   .cal-chip-invoice { background: #ffedd5; color: #7c2d12; }
   .cal-chip-invoice:hover { background: #fed7aa; }
+  .cal-chip-overdue { background: #f5f5f4; color: #78716c; border: 1px dashed #a8a29e; }
+  .cal-chip-overdue:hover { background: #e7e5e4; }
   .cal-chip-check { color: #16a34a; font-weight: 700; }
   .cal-chip-auto  { color: var(--stone-400); }
 
