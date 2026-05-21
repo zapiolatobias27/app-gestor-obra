@@ -409,7 +409,7 @@ export default function ComprasPage() {
       {/* Header */}
       <div>
         <p className="page-eyebrow">Gestión económica</p>
-        <h1 className="page-title">Compras</h1>
+        <h1 className="page-title">Compras y Materiales</h1>
         <p className="page-subtitle">
           Solicitudes de autorización ·{" "}
           {hasStartDate ? `Semana actual: ${currentWeek}` : "Configurá la fecha de inicio para ver la semana"}

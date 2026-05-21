@@ -7,11 +7,14 @@ import {
   updateInvoiceStatus,
   deleteInvoice,
   getPurchases,
+  getRemitos,
+  addRemito,
+  deleteRemito,
 } from "@/lib/mock-db"
 import { parseNum } from "@/lib/parseNum"
 import { getActiveProjectId } from "@/lib/projects-db"
 import { createClient } from "@/lib/supabase/client"
-import type { Invoice, PurchaseScheduleItem } from "@/types/project"
+import type { Invoice, PurchaseScheduleItem, Remito } from "@/types/project"
 
 const todayStr = new Date().toISOString().split("T")[0]
 
@@ -80,6 +83,26 @@ const EMPTY_FORM: FormState = {
   date: todayStr,
   dueDate: "",
   invoiceNumber: "",
+  notes: "",
+  photoFile: null,
+  photoPreview: null,
+}
+
+interface RemitoFormState {
+  supplier: string
+  remitoNumber: string
+  date: string
+  description: string
+  notes: string
+  photoFile: File | null
+  photoPreview: string | null
+}
+
+const EMPTY_REMITO_FORM: RemitoFormState = {
+  supplier: "",
+  remitoNumber: "",
+  date: todayStr,
+  description: "",
   notes: "",
   photoFile: null,
   photoPreview: null,
@@ -216,14 +239,23 @@ export default function InvoicesPage() {
   const [formError, setFormError]     = useState("")
   const [dragOver, setDragOver]       = useState(false)
   const [pdfPreview, setPdfPreview]   = useState<string | null>(null)
+  const [imgPreview, setImgPreview]   = useState<string | null>(null)
   const pdfRef   = useRef<HTMLInputElement>(null)
+  const [activeTab, setActiveTab]           = useState<"facturas" | "remitos">("facturas")
+  const [remitos, setRemitos]               = useState<Remito[]>([])
+  const [showRemitoForm, setShowRemitoForm] = useState(false)
+  const [remitoForm, setRemitoForm]         = useState<RemitoFormState>(EMPTY_REMITO_FORM)
+  const [remitoSubmitting, setRemitoSubmitting] = useState(false)
+  const [remitoError, setRemitoError]       = useState("")
+  const remitoFileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [invs, purs] = await Promise.all([getInvoices(), getPurchases()])
+      const [invs, purs, rems] = await Promise.all([getInvoices(), getPurchases(), getRemitos()])
       setInvoices(invs.map((inv) => ({ ...inv, _status: effectiveStatus(inv) })))
       setPurchases(purs)
+      setRemitos(rems)
     } finally {
       setLoading(false)
     }
@@ -339,6 +371,62 @@ export default function InvoicesPage() {
     await load()
   }
 
+  const resetRemitoForm = () => {
+    if (remitoForm.photoPreview) URL.revokeObjectURL(remitoForm.photoPreview)
+    setRemitoForm(EMPTY_REMITO_FORM)
+    setRemitoError("")
+    setShowRemitoForm(false)
+  }
+
+  const handleRemitoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!remitoForm.supplier.trim() || !remitoForm.description.trim() || !remitoForm.date) {
+      setRemitoError("Proveedor, descripción y fecha son obligatorios.")
+      return
+    }
+    setRemitoSubmitting(true)
+    setRemitoError("")
+    try {
+      let photoUrl: string | undefined
+
+      if (remitoForm.photoFile) {
+        const supabase = createClient()
+        const pid = getActiveProjectId()
+        const ext = remitoForm.photoFile.name.split(".").pop() ?? "pdf"
+        const path = `${pid}/${crypto.randomUUID()}-${Date.now()}.${ext}`
+        const { error: uploadError } = await supabase.storage
+          .from("invoices")
+          .upload(path, remitoForm.photoFile, { contentType: remitoForm.photoFile.type })
+        if (uploadError) throw new Error(uploadError.message)
+        const { data: { publicUrl } } = supabase.storage.from("invoices").getPublicUrl(path)
+        photoUrl = publicUrl
+      }
+
+      await addRemito({
+        projectId: getActiveProjectId() ?? "",
+        supplier: remitoForm.supplier.trim(),
+        remitoNumber: remitoForm.remitoNumber.trim() || undefined,
+        date: remitoForm.date,
+        description: remitoForm.description.trim(),
+        notes: remitoForm.notes.trim() || undefined,
+        photoUrl,
+      })
+
+      resetRemitoForm()
+      await load()
+    } catch (err) {
+      setRemitoError(err instanceof Error ? err.message : "Error al guardar el remito")
+    } finally {
+      setRemitoSubmitting(false)
+    }
+  }
+
+  const handleRemitoDelete = async (id: string) => {
+    if (!confirm("¿Eliminar este remito?")) return
+    await deleteRemito(id)
+    setRemitos((prev) => prev.filter((r) => r.id !== id))
+  }
+
   return (
     <>
     <div className="page-wrap space-y-6">
@@ -424,247 +512,345 @@ export default function InvoicesPage() {
         )}
       </div>
 
-      {/* Facturas registradas */}
+      {/* Facturas / Remitos tabbed section */}
       <div className="card-obra p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="section-title">Facturas registradas</h2>
-          {!showForm && (
+        <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+          <div className="flex gap-1 bg-stone-100 rounded-lg p-1">
             <button
               type="button"
-              className="proj-btn-primary"
-              onClick={() => setShowForm(true)}
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === "facturas" ? "bg-white shadow-sm text-stone-900" : "text-stone-500 hover:text-stone-700"
+              }`}
+              onClick={() => { setActiveTab("facturas"); resetRemitoForm() }}
             >
+              Facturas
+            </button>
+            <button
+              type="button"
+              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === "remitos" ? "bg-white shadow-sm text-stone-900" : "text-stone-500 hover:text-stone-700"
+              }`}
+              onClick={() => { setActiveTab("remitos"); resetForm() }}
+            >
+              Remitos
+            </button>
+          </div>
+          {activeTab === "facturas" && !showForm && (
+            <button type="button" className="proj-btn-primary" onClick={() => setShowForm(true)}>
               + Nueva factura
+            </button>
+          )}
+          {activeTab === "remitos" && !showRemitoForm && (
+            <button type="button" className="proj-btn-primary" onClick={() => setShowRemitoForm(true)}>
+              + Nuevo remito
             </button>
           )}
         </div>
 
-        {showForm && (
-          <div className="mb-6 bg-stone-50 rounded-xl p-4 space-y-4 border border-stone-100">
-            <h3 className="font-semibold text-stone-800">Nueva factura</h3>
+        {/* ─── FACTURAS TAB ─────────────────────────────────────────── */}
+        {activeTab === "facturas" && (
+          <>
+            {showForm && (
+              <div className="mb-6 bg-stone-50 rounded-xl p-4 space-y-4 border border-stone-100">
+                <h3 className="font-semibold text-stone-800">Nueva factura</h3>
 
-            {/* Step 1: PDF upload */}
-            {!form.photoFile && !extracting && (
-              <div
-                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={handleDrop}
-                onClick={() => pdfRef.current?.click()}
-                className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl py-10 cursor-pointer transition-colors
-                  ${dragOver ? "border-stone-400 bg-stone-100" : "border-stone-200 hover:border-stone-300 hover:bg-stone-100/60"}`}
-              >
-                <svg width="36" height="36" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-stone-400">
-                  <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".2" stroke="currentColor" strokeWidth="1.2" />
-                  <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1.2" fill="none" opacity=".5" />
-                  <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif" opacity=".9">PDF</text>
-                </svg>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-stone-700">Arrastrá o hacé click para subir el PDF</p>
-                  <p className="text-xs text-stone-400 mt-0.5">Los datos se extraen automáticamente</p>
-                </div>
-              </div>
-            )}
-
-            {/* Extracting spinner */}
-            {extracting && (
-              <div className="flex items-center justify-center gap-3 py-10">
-                <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity=".3" />
-                  <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                </svg>
-                <span className="text-sm text-stone-500">Leyendo PDF…</span>
-              </div>
-            )}
-
-            {/* Step 2: Form pre-filled from PDF */}
-            {form.photoFile && !extracting && (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {/* PDF file indicator */}
-                <div className="flex items-center justify-between bg-white border border-stone-200 rounded-lg px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-red-500 shrink-0">
+                {!form.photoFile && !extracting && (
+                  <div
+                    onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleDrop}
+                    onClick={() => pdfRef.current?.click()}
+                    className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl py-10 cursor-pointer transition-colors
+                      ${dragOver ? "border-stone-400 bg-stone-100" : "border-stone-200 hover:border-stone-300 hover:bg-stone-100/60"}`}
+                  >
+                    <svg width="36" height="36" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-stone-400">
                       <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".2" stroke="currentColor" strokeWidth="1.2" />
                       <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1.2" fill="none" opacity=".5" />
-                      <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif">PDF</text>
+                      <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif" opacity=".9">PDF</text>
                     </svg>
-                    <span className="text-xs text-stone-600 truncate max-w-[200px]">{form.photoFile.name}</span>
-                    {autoFilled && (
-                      <span className="text-xs text-green-600 font-medium">· Datos extraídos</span>
-                    )}
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-stone-700">Arrastrá o hacé click para subir el PDF</p>
+                      <p className="text-xs text-stone-400 mt-0.5">Los datos se extraen automáticamente</p>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    className="proj-btn-ghost-sm"
-                    onClick={() => {
-                      if (form.photoPreview) URL.revokeObjectURL(form.photoPreview)
-                      setForm(EMPTY_FORM)
-                      setAutoFilled(false)
-                      if (pdfRef.current) pdfRef.current.value = ""
-                    }}
-                  >
-                    Cambiar
-                  </button>
-                </div>
+                )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1">Proveedor</label>
-                    <input
-                      type="text"
-                      className="proj-form-input w-full"
-                      value={form.supplier}
-                      onChange={(e) => setForm((f) => ({ ...f, supplier: e.target.value }))}
-                      placeholder="Ej: Hormicenter SA"
-                    />
+                {extracting && (
+                  <div className="flex items-center justify-center gap-3 py-10">
+                    <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity=".3" />
+                      <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                    </svg>
+                    <span className="text-sm text-stone-500">Leyendo PDF…</span>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1">N° de factura</label>
-                    <input
-                      type="text"
-                      className="proj-form-input w-full"
-                      value={form.invoiceNumber}
-                      onChange={(e) => setForm((f) => ({ ...f, invoiceNumber: e.target.value }))}
-                      placeholder="Ej: 1-00000013"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1">Monto (ARS) *</label>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      className="proj-form-input w-full"
-                      value={form.amount}
-                      onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-                      placeholder="Ej: 219.307 o 219307"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1">Fecha *</label>
-                    <input
-                      type="date"
-                      className="proj-form-input w-full"
-                      value={form.date}
-                      onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-stone-600 mb-1">Vencimiento</label>
-                    <input
-                      type="date"
-                      className="proj-form-input w-full"
-                      value={form.dueDate}
-                      onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
-                    />
-                  </div>
-                </div>
+                )}
 
-                {formError && <p className="text-sm text-red-600">{formError}</p>}
+                {form.photoFile && !extracting && (
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="flex items-center justify-between bg-white border border-stone-200 rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-red-500 shrink-0">
+                          <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".2" stroke="currentColor" strokeWidth="1.2" />
+                          <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1.2" fill="none" opacity=".5" />
+                          <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif">PDF</text>
+                        </svg>
+                        <span className="text-xs text-stone-600 truncate max-w-[200px]">{form.photoFile.name}</span>
+                        {autoFilled && <span className="text-xs text-green-600 font-medium">· Datos extraídos</span>}
+                      </div>
+                      <button
+                        type="button"
+                        className="proj-btn-ghost-sm"
+                        onClick={() => {
+                          if (form.photoPreview) URL.revokeObjectURL(form.photoPreview)
+                          setForm(EMPTY_FORM)
+                          setAutoFilled(false)
+                          if (pdfRef.current) pdfRef.current.value = ""
+                        }}
+                      >
+                        Cambiar
+                      </button>
+                    </div>
 
-                <div className="flex gap-2">
-                  <button type="submit" className="proj-btn-primary" disabled={submitting}>
-                    {submitting ? "Guardando…" : "Guardar factura"}
-                  </button>
-                  <button type="button" className="proj-btn-ghost" onClick={resetForm} disabled={submitting}>
-                    Cancelar
-                  </button>
-                </div>
-              </form>
-            )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Proveedor</label>
+                        <input type="text" className="proj-form-input w-full" value={form.supplier}
+                          onChange={(e) => setForm((f) => ({ ...f, supplier: e.target.value }))}
+                          placeholder="Ej: Hormicenter SA" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">N° de factura</label>
+                        <input type="text" className="proj-form-input w-full" value={form.invoiceNumber}
+                          onChange={(e) => setForm((f) => ({ ...f, invoiceNumber: e.target.value }))}
+                          placeholder="Ej: 1-00000013" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Monto (ARS) *</label>
+                        <input type="text" inputMode="decimal" className="proj-form-input w-full" value={form.amount}
+                          onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                          placeholder="Ej: 219.307 o 219307" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Fecha *</label>
+                        <input type="date" className="proj-form-input w-full" value={form.date}
+                          onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Vencimiento</label>
+                        <input type="date" className="proj-form-input w-full" value={form.dueDate}
+                          onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))} />
+                      </div>
+                    </div>
 
-            {/* Cancel before PDF selected */}
-            {!form.photoFile && !extracting && (
-              <div className="flex justify-end">
-                <button type="button" className="proj-btn-ghost" onClick={resetForm}>
-                  Cancelar
-                </button>
+                    {formError && <p className="text-sm text-red-600">{formError}</p>}
+
+                    <div className="flex gap-2">
+                      <button type="submit" className="proj-btn-primary" disabled={submitting}>
+                        {submitting ? "Guardando…" : "Guardar factura"}
+                      </button>
+                      <button type="button" className="proj-btn-ghost" onClick={resetForm} disabled={submitting}>
+                        Cancelar
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {!form.photoFile && !extracting && (
+                  <div className="flex justify-end">
+                    <button type="button" className="proj-btn-ghost" onClick={resetForm}>Cancelar</button>
+                  </div>
+                )}
+
+                <input ref={pdfRef} type="file" accept="application/pdf" className="hidden" onChange={handlePdfChange} />
               </div>
             )}
 
-            <input
-              ref={pdfRef}
-              type="file"
-              accept="application/pdf"
-              className="hidden"
-              onChange={handlePdfChange}
-            />
-          </div>
+            {loading ? (
+              <p className="text-sm text-stone-400">Cargando…</p>
+            ) : invoices.length === 0 ? (
+              <p className="text-sm text-stone-400">No hay facturas registradas aún.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left border-b border-stone-100">
+                      <th className="pb-2 pr-3 font-medium text-stone-500">N°</th>
+                      <th className="pb-2 pr-3 font-medium text-stone-500">Proveedor</th>
+                      <th className="pb-2 pr-3 font-medium text-stone-500 text-right">Monto</th>
+                      <th className="pb-2 pr-3 font-medium text-stone-500">Fecha</th>
+                      <th className="pb-2 pr-3 font-medium text-stone-500">Vencimiento</th>
+                      <th className="pb-2 pr-3 font-medium text-stone-500">Estado</th>
+                      <th className="pb-2 font-medium text-stone-500">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.map((inv) => (
+                      <tr key={inv.id} className="border-b border-stone-50 hover:bg-stone-50">
+                        <td className="py-2 pr-3 text-stone-400 text-xs tabular-nums">{inv.invoiceNumber ?? "—"}</td>
+                        <td className="py-2 pr-3 font-medium text-stone-800 max-w-[140px] truncate">{inv.supplier}</td>
+                        <td className="py-2 pr-3 text-stone-800 font-medium text-right tabular-nums">{fmt(inv.amount)}</td>
+                        <td className="py-2 pr-3 text-stone-500 tabular-nums whitespace-nowrap">{fmtDate(inv.date)}</td>
+                        <td className="py-2 pr-3 text-stone-500 tabular-nums whitespace-nowrap">{fmtDate(inv.dueDate)}</td>
+                        <td className="py-2 pr-3">
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[inv._status]}`}>
+                            {STATUS_LABEL[inv._status]}
+                          </span>
+                        </td>
+                        <td className="py-2">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {inv.photoUrl && (
+                              <button type="button" className="proj-btn-ghost-sm" onClick={() => setPdfPreview(inv.photoUrl!)}>
+                                Ver PDF
+                              </button>
+                            )}
+                            {inv._status !== "paid" && (
+                              <button type="button" className="proj-btn-ghost-sm" onClick={() => handleMarkPaid(inv.id)}>
+                                Marcar pagada
+                              </button>
+                            )}
+                            <button type="button" className="proj-btn-danger-sm" onClick={() => handleDelete(inv.id)}>
+                              Eliminar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
 
-        {loading ? (
-          <p className="text-sm text-stone-400">Cargando…</p>
-        ) : invoices.length === 0 ? (
-          <p className="text-sm text-stone-400">No hay facturas registradas aún.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-stone-100">
-                  <th className="pb-2 pr-3 font-medium text-stone-500">N°</th>
-                  <th className="pb-2 pr-3 font-medium text-stone-500">Proveedor</th>
-                  <th className="pb-2 pr-3 font-medium text-stone-500 text-right">Monto</th>
-                  <th className="pb-2 pr-3 font-medium text-stone-500">Fecha</th>
-                  <th className="pb-2 pr-3 font-medium text-stone-500">Vencimiento</th>
-                  <th className="pb-2 pr-3 font-medium text-stone-500">Estado</th>
-                  <th className="pb-2 font-medium text-stone-500">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((inv) => (
-                  <tr key={inv.id} className="border-b border-stone-50 hover:bg-stone-50">
-                    <td className="py-2 pr-3 text-stone-400 text-xs tabular-nums">
-                      {inv.invoiceNumber ?? "—"}
-                    </td>
-                    <td className="py-2 pr-3 font-medium text-stone-800 max-w-[140px] truncate">
-                      {inv.supplier}
-                    </td>
-                    <td className="py-2 pr-3 text-stone-800 font-medium text-right tabular-nums">
-                      {fmt(inv.amount)}
-                    </td>
-                    <td className="py-2 pr-3 text-stone-500 tabular-nums whitespace-nowrap">
-                      {fmtDate(inv.date)}
-                    </td>
-                    <td className="py-2 pr-3 text-stone-500 tabular-nums whitespace-nowrap">
-                      {fmtDate(inv.dueDate)}
-                    </td>
-                    <td className="py-2 pr-3">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_BADGE[inv._status]}`}>
-                        {STATUS_LABEL[inv._status]}
-                      </span>
-                    </td>
-                    <td className="py-2">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {inv.photoUrl && (
-                          <button
-                            type="button"
-                            className="proj-btn-ghost-sm"
-                            onClick={() => setPdfPreview(inv.photoUrl!)}
-                          >
-                            Ver PDF
+        {/* ─── REMITOS TAB ──────────────────────────────────────────── */}
+        {activeTab === "remitos" && (
+          <>
+            {showRemitoForm && (
+              <div className="mb-6 bg-stone-50 rounded-xl p-4 space-y-4 border border-stone-100">
+                <h3 className="font-semibold text-stone-800">Nuevo remito</h3>
+                <form onSubmit={handleRemitoSubmit} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-stone-600 mb-1">Proveedor *</label>
+                      <input type="text" className="proj-form-input w-full" value={remitoForm.supplier} autoFocus
+                        onChange={(e) => setRemitoForm((f) => ({ ...f, supplier: e.target.value }))}
+                        placeholder="Ej: Hormicenter SA" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-stone-600 mb-1">N° de remito</label>
+                      <input type="text" className="proj-form-input w-full" value={remitoForm.remitoNumber}
+                        onChange={(e) => setRemitoForm((f) => ({ ...f, remitoNumber: e.target.value }))}
+                        placeholder="Ej: R-0001234" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-stone-600 mb-1">Fecha *</label>
+                      <input type="date" className="proj-form-input w-full" value={remitoForm.date}
+                        onChange={(e) => setRemitoForm((f) => ({ ...f, date: e.target.value }))} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium text-stone-600 mb-1">Descripción *</label>
+                      <input type="text" className="proj-form-input w-full" value={remitoForm.description}
+                        onChange={(e) => setRemitoForm((f) => ({ ...f, description: e.target.value }))}
+                        placeholder="Ej: 50 bolsas cemento Portland, 20 varillas 12mm" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium text-stone-600 mb-1">Foto del remito</label>
+                      {remitoForm.photoPreview ? (
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={remitoForm.photoPreview}
+                            alt="Vista previa del remito"
+                            className="w-20 h-20 object-cover rounded-lg border border-stone-200 cursor-pointer"
+                            onClick={() => setImgPreview(remitoForm.photoPreview)}
+                          />
+                          <button type="button" className="proj-btn-ghost-sm"
+                            onClick={() => {
+                              if (remitoForm.photoPreview) URL.revokeObjectURL(remitoForm.photoPreview)
+                              setRemitoForm((f) => ({ ...f, photoFile: null, photoPreview: null }))
+                              if (remitoFileRef.current) remitoFileRef.current.value = ""
+                            }}>
+                            Cambiar foto
                           </button>
-                        )}
-                        {inv._status !== "paid" && (
-                          <button
-                            type="button"
-                            className="proj-btn-ghost-sm"
-                            onClick={() => handleMarkPaid(inv.id)}
-                          >
-                            Marcar pagada
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="proj-btn-danger-sm"
-                          onClick={() => handleDelete(inv.id)}
-                        >
-                          Eliminar
+                        </div>
+                      ) : (
+                        <button type="button"
+                          className="flex items-center gap-2 border border-dashed border-stone-300 rounded-lg px-4 py-3 text-sm text-stone-500 hover:border-stone-400 hover:bg-stone-50 transition-colors w-full"
+                          onClick={() => remitoFileRef.current?.click()}>
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                            <circle cx="12" cy="13" r="4" />
+                          </svg>
+                          Sacar foto o elegir imagen (opcional)
                         </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      )}
+                      <input ref={remitoFileRef} type="file" accept="image/*" capture="environment" className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          setRemitoForm((f) => ({ ...f, photoFile: file, photoPreview: URL.createObjectURL(file) }))
+                        }} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-medium text-stone-600 mb-1">Notas</label>
+                      <textarea className="proj-form-input w-full" style={{ minHeight: "4rem", resize: "vertical" }}
+                        value={remitoForm.notes}
+                        onChange={(e) => setRemitoForm((f) => ({ ...f, notes: e.target.value }))}
+                        placeholder="Observaciones, condiciones, etc." />
+                    </div>
+                  </div>
+                  {remitoError && <p className="text-sm text-red-600">{remitoError}</p>}
+                  <div className="flex gap-2">
+                    <button type="submit" className="proj-btn-primary" disabled={remitoSubmitting}>
+                      {remitoSubmitting ? "Guardando…" : "Guardar remito"}
+                    </button>
+                    <button type="button" className="proj-btn-ghost" onClick={resetRemitoForm}>Cancelar</button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {loading ? (
+              <p className="text-sm text-stone-400">Cargando…</p>
+            ) : remitos.length === 0 ? (
+              <p className="text-sm text-stone-400">No hay remitos registrados aún.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left border-b border-stone-100">
+                      <th className="pb-2 pr-3 font-medium text-stone-500">N°</th>
+                      <th className="pb-2 pr-3 font-medium text-stone-500">Proveedor</th>
+                      <th className="pb-2 pr-3 font-medium text-stone-500">Descripción</th>
+                      <th className="pb-2 pr-3 font-medium text-stone-500">Fecha</th>
+                      <th className="pb-2 font-medium text-stone-500">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {remitos.map((r) => (
+                      <tr key={r.id} className="border-b border-stone-50 hover:bg-stone-50">
+                        <td className="py-2 pr-3 text-stone-400 text-xs tabular-nums">{r.remitoNumber ?? "—"}</td>
+                        <td className="py-2 pr-3 font-medium text-stone-800 max-w-[140px] truncate">{r.supplier}</td>
+                        <td className="py-2 pr-3 text-stone-600 max-w-[200px] truncate">{r.description}</td>
+                        <td className="py-2 pr-3 text-stone-500 tabular-nums whitespace-nowrap">{fmtDate(r.date)}</td>
+                        <td className="py-2">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {r.photoUrl && (
+                              <button type="button" className="proj-btn-ghost-sm" onClick={() => setImgPreview(r.photoUrl!)}>
+                                Ver foto
+                              </button>
+                            )}
+                            <button type="button" className="proj-btn-danger-sm" onClick={() => handleRemitoDelete(r.id)}>
+                              Eliminar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -675,6 +861,18 @@ export default function InvoicesPage() {
             <button type="button" className="photo-lightbox-close" onClick={() => setPdfPreview(null)}>✕</button>
             <iframe src={pdfPreview} className="pdf-lightbox-frame" title="Vista previa de factura" />
           </div>
+        </div>
+      )}
+
+      {imgPreview && (
+        <div className="photo-lightbox" onClick={() => setImgPreview(null)}>
+          <button type="button" className="photo-lightbox-close" onClick={() => setImgPreview(null)}>✕</button>
+          <img
+            src={imgPreview}
+            alt="Vista previa del remito"
+            className="photo-lightbox-img"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </>

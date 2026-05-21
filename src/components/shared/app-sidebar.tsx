@@ -8,6 +8,7 @@ import { UserRole } from "@/types/user"
 import { createClient } from "@/lib/supabase/client"
 import { signOut } from "@/lib/auth-client"
 import { getActiveProjectId } from "@/lib/projects-db"
+import { getProject } from "@/lib/mock-db"
 
 const ROLE_LABEL: Record<UserRole, string> = {
   owner: "Propietario",
@@ -163,7 +164,7 @@ const FULL_ACCESS_NAV: NavItem[] = [
   { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,  section: "Obra" },
   { label: "Proveedores", href: "/dashboard/proveedores", icon: <IconUsers />,         section: "Administración" },
   { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
-  { label: "Compras",   href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
+  { label: "Compras y Materiales",   href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
   { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
   { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,         section: "Registro" },
   { label: "Importar",   href: "/dashboard/import",     icon: <IconUpload />,   section: "Admin" },
@@ -178,7 +179,7 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,      section: "Obra" },
     { label: "Proveedores", href: "/dashboard/proveedores", icon: <IconUsers />,         section: "Administración" },
     { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
-    { label: "Compras",    href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
+    { label: "Compras y Materiales",    href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
     { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
     { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,        section: "Registro" },
   ],
@@ -197,7 +198,12 @@ export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
   const [userName, setUserName] = useState("")
   const [userEmail, setUserEmail] = useState("")
   const [menuOpen, setMenuOpen] = useState(false)
+  const [projectName, setProjectName] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    getProject().then((p) => setProjectName(p?.name ?? null))
+  }, [])
 
   useEffect(() => {
     const supabase = createClient()
@@ -277,7 +283,7 @@ export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
                 <path d="M3 7L10 3L17 7" stroke="var(--clay-400)" strokeWidth="1.5" fill="none" strokeLinejoin="round" />
                 <rect x="8" y="10" width="4" height="5" rx="0.75" fill="var(--clay-500)" />
               </svg>
-              <span className="sidebar-brand-title">Obra Manager</span>
+              <span className="sidebar-brand-title">{projectName ?? "Obra Manager"}</span>
             </div>
 
             {/* Botón hamburguesa / cerrar */}
@@ -290,7 +296,7 @@ export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
               {open ? <IconClose /> : <IconMenu />}
             </button>
           </div>
-          <p className="sidebar-brand-sub">Control de construcción</p>
+          <p className="sidebar-brand-sub">Obra Manager</p>
         </div>
 
         {/* Nav */}

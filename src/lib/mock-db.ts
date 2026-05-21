@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client"
 import { getActiveProjectId } from "./projects-db"
-import type { Project, Stage, Task, Photo, Provider, PurchaseScheduleItem, DailyBudgetEntry, PurchaseRequest, BudgetMovement, CalendarEvent, Invoice } from "@/types/project"
+import type { Project, Stage, Task, Photo, Provider, Remito, PurchaseScheduleItem, DailyBudgetEntry, PurchaseRequest, BudgetMovement, CalendarEvent, Invoice } from "@/types/project"
 import type { SupplyItem, AuditAlert } from "@/types/stock"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -911,6 +911,58 @@ export async function deleteInvoice(id: string): Promise<void> {
   const supabase = createClient()
   const { error } = await supabase.from("invoices").delete().eq("id", id)
   if (error) throw new Error(error.message)
+}
+
+// ─── Remitos ─────────────────────────────────────────────────────────────────
+
+function mapRemito(r: Record<string, unknown>): Remito {
+  return {
+    id: r.id as string,
+    projectId: r.project_id as string,
+    supplier: r.supplier as string,
+    remitoNumber: r.remito_number as string | undefined,
+    date: r.date as string,
+    description: r.description as string,
+    photoUrl: r.photo_url as string | undefined,
+    notes: r.notes as string | undefined,
+    createdAt: r.created_at as string,
+  }
+}
+
+export async function getRemitos(): Promise<Remito[]> {
+  const supabase = createClient()
+  const pid = projectId()
+  if (!pid) return []
+  const { data } = await supabase
+    .from("remitos")
+    .select("*")
+    .eq("project_id", pid)
+    .order("date", { ascending: false })
+  return (data ?? []).map(mapRemito)
+}
+
+export async function addRemito(r: Omit<Remito, "id" | "createdAt">): Promise<Remito> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from("remitos")
+    .insert({
+      project_id:    r.projectId,
+      supplier:      r.supplier,
+      remito_number: r.remitoNumber ?? null,
+      date:          r.date,
+      description:   r.description,
+      photo_url:     r.photoUrl ?? null,
+      notes:         r.notes ?? null,
+    })
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapRemito(data)
+}
+
+export async function deleteRemito(id: string): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("remitos").delete().eq("id", id)
 }
 
 // ─── Proveedores ──────────────────────────────────────────────────────────────

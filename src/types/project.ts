@@ -87,6 +87,18 @@ export interface Task {
   completedAt?: string
 }
 
+export interface Remito {
+  id: string
+  projectId: string
+  supplier: string
+  remitoNumber?: string
+  date: string
+  description: string
+  photoUrl?: string
+  notes?: string
+  createdAt: string
+}
+
 export interface Provider {
   id: string
   projectId: string
