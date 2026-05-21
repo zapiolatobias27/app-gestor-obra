@@ -215,6 +215,7 @@ export default function InvoicesPage() {
   const [autoFilled, setAutoFilled]   = useState(false)
   const [formError, setFormError]     = useState("")
   const [dragOver, setDragOver]       = useState(false)
+  const [pdfPreview, setPdfPreview]   = useState<string | null>(null)
   const pdfRef   = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -339,6 +340,7 @@ export default function InvoicesPage() {
   }
 
   return (
+    <>
     <div className="page-wrap space-y-6">
       <div>
         <p className="page-eyebrow">Gestión económica</p>
@@ -632,14 +634,13 @@ export default function InvoicesPage() {
                     <td className="py-2">
                       <div className="flex items-center gap-1 flex-wrap">
                         {inv.photoUrl && (
-                          <a
-                            href={inv.photoUrl}
-                            target="_blank"
-                            rel="noreferrer"
+                          <button
+                            type="button"
                             className="proj-btn-ghost-sm"
+                            onClick={() => setPdfPreview(inv.photoUrl!)}
                           >
                             Ver PDF
-                          </a>
+                          </button>
                         )}
                         {inv._status !== "paid" && (
                           <button
@@ -667,5 +668,15 @@ export default function InvoicesPage() {
         )}
       </div>
     </div>
+
+      {pdfPreview && (
+        <div className="photo-lightbox" onClick={() => setPdfPreview(null)}>
+          <div className="pdf-lightbox-inner" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="photo-lightbox-close" onClick={() => setPdfPreview(null)}>✕</button>
+            <iframe src={pdfPreview} className="pdf-lightbox-frame" title="Vista previa de factura" />
+          </div>
+        </div>
+      )}
+    </>
   )
 }
