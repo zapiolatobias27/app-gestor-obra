@@ -47,7 +47,10 @@ function ProviderForm({
         </div>
         <div className="proj-form-field">
           <label className="proj-form-label">Teléfono</label>
-          <input className="proj-form-input" value={form.phone} onChange={set("phone")} placeholder="+54 11 1234-5678" type="tel" />
+          <input className="proj-form-input" value={form.phone} onChange={set("phone")} placeholder="Ej: 3511111111 o +54 351 111-1111" type="tel" />
+          <p style={{ fontSize: "0.7rem", color: "var(--stone-400)", marginTop: "0.2rem" }}>
+            Cualquier formato — se usa para llamar y abrir WhatsApp
+          </p>
         </div>
         <div className="proj-form-field">
           <label className="proj-form-label">Email</label>
@@ -116,10 +119,19 @@ function ProviderCard({
 
       <div className="provider-card-body">
         {provider.phone && (
-          <a href={`tel:${provider.phone}`} className="provider-detail">
+          <div className="provider-detail">
             <span className="provider-detail-icon">📞</span>
-            <span>{provider.phone}</span>
-          </a>
+            <a href={`tel:${provider.phone}`} className="provider-detail">{provider.phone}</a>
+            <a
+              href={`https://wa.me/${provider.phone.replace(/\D/g, "")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="provider-wa-btn"
+              title="Abrir WhatsApp"
+            >
+              WhatsApp
+            </a>
+          </div>
         )}
         {provider.email && (
           <a href={`mailto:${provider.email}`} className="provider-detail">
