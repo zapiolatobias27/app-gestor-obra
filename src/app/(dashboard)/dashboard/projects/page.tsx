@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation"
 import {
   getAllProjects, createProject, finalizeProject, reopenProject,
   setActiveProjectId, getActiveProjectId, updateMemberRole, removeMember,
-  getProjectMembers, deleteProject,
+  getProjectMembers, deleteProject, updateMemberPermissions,
   getProjectByInviteCode, joinProjectByCode,
 } from "@/lib/projects-db"
-import { Project, UserRole, ProjectMember } from "@/types/project"
+import { Project, UserRole, ProjectMember, MemberPermissions } from "@/types/project"
+import { PERM_TREE, isGroup, defaultPermissions } from "@/lib/permissions"
 import { parseNum } from "@/lib/parseNum"
 
 const ROLE_LABEL: Record<UserRole, string> = {
@@ -166,10 +167,126 @@ function ColaborarForm({ onDone }: { onDone: () => void }) {
 
 // ─── Member row ───────────────────────────────────────────────────────────────
 
+function PermissionsModal({
+  member, projectId, onClose, onSaved,
+}: { member: ProjectMember; projectId: string; onClose: () => void; onSaved: () => void }) {
+  const [perms, setPerms] = useState<MemberPermissions>(
+    member.permissions ?? defaultPermissions(member.role),
+  )
+  const [saving, setSaving] = useState(false)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const setView = (key: string, val: boolean) =>
+    setPerms((prev) => ({ ...prev, [key]: { view: val, edit: val ? (prev[key]?.edit ?? true) : false } }))
+
+  const setEdit = (key: string, val: boolean) =>
+    setPerms((prev) => ({ ...prev, [key]: { view: prev[key]?.view ?? true, edit: val } }))
+
+  const toggleGroup = (label: string) =>
+    setCollapsed((prev) => ({ ...prev, [label]: !prev[label] }))
+
+  const handleSave = async () => {
+    setSaving(true)
+    await updateMemberPermissions(projectId, member.userId, perms)
+    setSaving(false)
+    onSaved()
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div>
+          <h2 className="text-lg font-bold text-stone-900">Permisos de acceso</h2>
+          <p className="text-sm text-stone-500 mt-0.5">{member.name} · {ROLE_LABEL[member.role]}</p>
+        </div>
+
+        {/* Column headers */}
+        <div className="flex items-center gap-2 px-3">
+          <span className="flex-1 text-xs font-semibold text-stone-400 uppercase tracking-wide">Sección</span>
+          <span className="w-10 text-center text-xs font-semibold text-stone-400 uppercase tracking-wide">Ver</span>
+          <span className="w-14 text-center text-xs font-semibold text-stone-400 uppercase tracking-wide">Editar</span>
+        </div>
+
+        <div className="space-y-0.5">
+          {PERM_TREE.map((node) => {
+            if (isGroup(node)) {
+              const open = !collapsed[node.label]
+              return (
+                <div key={node.label}>
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(node.label)}
+                    className="w-full flex items-center gap-2 px-3 pt-3 pb-1.5 hover:bg-stone-50 rounded-lg transition-colors"
+                  >
+                    <svg
+                      width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"
+                      className={`shrink-0 text-stone-400 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+                    >
+                      <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide">{node.label}</span>
+                  </button>
+                  {open && node.subsections.map((sub) => (
+                    <div key={sub.key} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-stone-50 pl-8">
+                      <span className="flex-1 text-sm text-stone-700">{sub.label}</span>
+                      <div className="w-10 flex justify-center">
+                        <input type="checkbox" checked={perms[sub.key]?.view !== false}
+                          onChange={(e) => setView(sub.key, e.target.checked)}
+                          className="w-4 h-4 accent-stone-700 rounded cursor-pointer" />
+                      </div>
+                      <div className="w-14 flex justify-center">
+                        {sub.hasEdit && (
+                          <input type="checkbox"
+                            checked={perms[sub.key]?.view !== false && perms[sub.key]?.edit !== false}
+                            disabled={perms[sub.key]?.view === false}
+                            onChange={(e) => setEdit(sub.key, e.target.checked)}
+                            className="w-4 h-4 accent-stone-700 rounded cursor-pointer disabled:opacity-30" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+            return (
+              <div key={node.key} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-stone-50">
+                <span className="flex-1 text-sm text-stone-700">{node.label}</span>
+                <div className="w-10 flex justify-center">
+                  <input type="checkbox" checked={perms[node.key]?.view !== false}
+                    onChange={(e) => setView(node.key, e.target.checked)}
+                    className="w-4 h-4 accent-stone-700 rounded cursor-pointer" />
+                </div>
+                <div className="w-14 flex justify-center">
+                  {node.hasEdit && (
+                    <input type="checkbox"
+                      checked={perms[node.key]?.view !== false && perms[node.key]?.edit !== false}
+                      disabled={perms[node.key]?.view === false}
+                      onChange={(e) => setEdit(node.key, e.target.checked)}
+                      className="w-4 h-4 accent-stone-700 rounded cursor-pointer disabled:opacity-30" />
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={handleSave} disabled={saving} className="proj-btn-primary flex-1">
+            {saving ? "Guardando…" : "Guardar permisos"}
+          </button>
+          <button type="button" onClick={onClose} className="proj-btn-ghost flex-1">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function MemberRow({
   member, projectId, canEdit, onAction,
 }: { member: ProjectMember; projectId: string; canEdit: boolean; onAction: () => void }) {
   const [editing, setEditing] = useState(false)
+  const [showPerms, setShowPerms] = useState(false)
   const [role, setRole] = useState<UserRole>(member.role)
 
   const handleSave = async () => {
@@ -186,34 +303,45 @@ function MemberRow({
   }
 
   return (
-    <div className="proj-member-row">
-      <div className="proj-member-avatar">{member.name.charAt(0)}</div>
-      <div className="proj-member-info">
-        <p className="proj-member-name">{member.name}</p>
-        <p className="proj-member-email">{member.email}</p>
-      </div>
-      {editing ? (
-        <div className="proj-member-edit">
-          <select className="proj-role-select" value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
-            <option value="owner">Propietario</option>
-            <option value="architect">Arquitecto</option>
-            <option value="supervisor">Encargado de Obra</option>
-          </select>
-          <button type="button" className="proj-btn-approve" onClick={handleSave}>Guardar</button>
-          <button type="button" className="proj-btn-ghost" onClick={() => setEditing(false)}>Cancelar</button>
-        </div>
-      ) : (
-        <div className="proj-member-actions">
-          <span className="proj-role-badge">{ROLE_LABEL[member.role]}</span>
-          {canEdit && (
-            <>
-              <button type="button" className="proj-btn-ghost" onClick={() => setEditing(true)}>Editar rol</button>
-              <button type="button" className="proj-btn-danger-sm" onClick={handleRemove}>Quitar</button>
-            </>
-          )}
-        </div>
+    <>
+      {showPerms && (
+        <PermissionsModal
+          member={member}
+          projectId={projectId}
+          onClose={() => setShowPerms(false)}
+          onSaved={onAction}
+        />
       )}
-    </div>
+      <div className="proj-member-row">
+        <div className="proj-member-avatar">{member.name.charAt(0)}</div>
+        <div className="proj-member-info">
+          <p className="proj-member-name">{member.name}</p>
+          <p className="proj-member-email">{member.email}</p>
+        </div>
+        {editing ? (
+          <div className="proj-member-edit">
+            <select className="proj-role-select" value={role} onChange={(e) => setRole(e.target.value as UserRole)}>
+              <option value="owner">Propietario</option>
+              <option value="architect">Arquitecto</option>
+              <option value="supervisor">Encargado de Obra</option>
+            </select>
+            <button type="button" className="proj-btn-approve" onClick={handleSave}>Guardar</button>
+            <button type="button" className="proj-btn-ghost" onClick={() => setEditing(false)}>Cancelar</button>
+          </div>
+        ) : (
+          <div className="proj-member-actions">
+            <span className="proj-role-badge">{ROLE_LABEL[member.role]}</span>
+            {canEdit && (
+              <>
+                <button type="button" className="proj-btn-ghost" onClick={() => setShowPerms(true)}>Permisos</button>
+                <button type="button" className="proj-btn-ghost" onClick={() => setEditing(true)}>Editar rol</button>
+                <button type="button" className="proj-btn-danger-sm" onClick={handleRemove}>Quitar</button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 

@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/client"
 import { getActiveProjectId } from "./projects-db"
-import type { Project, Stage, Task, Photo, Provider, Remito, PurchaseScheduleItem, DailyBudgetEntry, PurchaseRequest, BudgetMovement, CalendarEvent, Invoice } from "@/types/project"
+import type { Project, Stage, Task, Photo, Provider, Remito, PurchaseScheduleItem, DailyBudgetEntry, PurchaseRequest, BudgetMovement, CajaChicaExpense, CalendarEvent, Invoice, ProjectDocument } from "@/types/project"
 import type { SupplyItem, AuditAlert } from "@/types/stock"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -75,11 +75,15 @@ function mapSupply(r: Record<string, unknown>): SupplyItem {
     plannedQty: r.planned_qty as number,
     realQty: r.real_qty as number,
     currentStock: r.current_stock as number | undefined,
+    totalPurchased: (r.total_purchased as number) ?? 0,
     weeklyConsumption: r.weekly_consumption as number | undefined,
     deliveryDays: r.delivery_days as number | undefined,
+    orderWeek: r.order_week as number | undefined,
+    purchaseStatus: (r.purchase_status as SupplyItem["purchaseStatus"]) ?? undefined,
     providerId: r.provider_id as string | undefined,
     estimatedUnitCost: r.estimated_unit_cost as number | undefined,
     realUnitCost: r.real_unit_cost as number | undefined,
+    photoUrl: r.photo_url as string | undefined,
     autoDiscountOnComplete: r.auto_discount_on_complete as boolean | undefined,
   }
 }
@@ -139,6 +143,7 @@ function mapBudgetMovement(r: Record<string, unknown>): BudgetMovement {
     amount: r.amount as number,
     date: r.date as string,
     purchaseRequestId: r.purchase_request_id as string | undefined,
+    category: r.category as string | undefined,
   }
 }
 
@@ -384,7 +389,7 @@ export async function getSupplies(): Promise<SupplyItem[]> {
   const stages = await getStages()
   const stageIds = stages.map((s) => s.id)
   if (stageIds.length === 0) return []
-  const { data } = await supabase.from("supply_items").select("*").in("stage_id", stageIds)
+  const { data } = await supabase.from("supply_items").select("*").in("stage_id", stageIds).order("created_at", { ascending: true })
   return (data ?? []).map(mapSupply)
 }
 
@@ -405,11 +410,15 @@ export async function addSupply(supply: SupplyItem): Promise<void> {
     planned_qty: supply.plannedQty,
     real_qty: supply.realQty,
     current_stock: supply.currentStock,
+    total_purchased: supply.totalPurchased ?? 0,
     weekly_consumption: supply.weeklyConsumption,
     delivery_days: supply.deliveryDays,
+    order_week: supply.orderWeek ?? null,
+    purchase_status: supply.purchaseStatus ?? null,
     provider_id: supply.providerId,
     estimated_unit_cost: supply.estimatedUnitCost,
     real_unit_cost: supply.realUnitCost,
+    photo_url: supply.photoUrl ?? null,
     auto_discount_on_complete: supply.autoDiscountOnComplete ?? false,
   })
 }
@@ -422,10 +431,15 @@ export async function updateSupply(supply: SupplyItem): Promise<void> {
     planned_qty: supply.plannedQty,
     real_qty: supply.realQty,
     current_stock: supply.currentStock,
+    total_purchased: supply.totalPurchased ?? 0,
     weekly_consumption: supply.weeklyConsumption,
     delivery_days: supply.deliveryDays,
+    order_week: supply.orderWeek ?? null,
+    purchase_status: supply.purchaseStatus ?? null,
+    provider_id: supply.providerId,
     estimated_unit_cost: supply.estimatedUnitCost,
     real_unit_cost: supply.realUnitCost,
+    photo_url: supply.photoUrl ?? null,
     auto_discount_on_complete: supply.autoDiscountOnComplete ?? false,
   }).eq("id", supply.id)
 }
@@ -438,6 +452,11 @@ export async function updateSupplyRealQty(supplyId: string, realQty: number): Pr
 export async function updateSupplyCurrentStock(supplyId: string, currentStock: number): Promise<void> {
   const supabase = createClient()
   await supabase.from("supply_items").update({ current_stock: currentStock }).eq("id", supplyId)
+}
+
+export async function updateSupplyPurchaseStatus(id: string, status: SupplyItem["purchaseStatus"]): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("supply_items").update({ purchase_status: status ?? null }).eq("id", id)
 }
 
 export async function deleteSupply(supplyId: string): Promise<void> {
@@ -610,12 +629,78 @@ export async function rejectPurchaseRequest(requestId: string, reviewedBy: strin
   }).eq("id", requestId)
 }
 
+export async function updatePurchaseRequest(id: string, description: string, amount: number): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("purchase_requests").update({ description, amount }).eq("id", id)
+}
+
 // ─── Budget Movements ─────────────────────────────────────────────────────────
 
 export async function getBudgetMovements(): Promise<BudgetMovement[]> {
   const supabase = createClient()
   const { data } = await supabase.from("budget_movements").select("*").eq("project_id", projectId()).order("date", { ascending: false })
-  return (data ?? []).map(mapBudgetMovement)
+  const movements = (data ?? []).map(mapBudgetMovement)
+  // Merge locally-stored categories (no schema migration required)
+  const cats = getCategoryMap()
+  return movements.map((m) => ({ ...m, category: m.category ?? cats[m.id] }))
+}
+
+export async function addBudgetMovement(data: { description: string; amount: number; date: string; category?: string }): Promise<void> {
+  const supabase = createClient()
+  const { data: row, error } = await supabase.from("budget_movements").insert({
+    project_id: projectId(),
+    description: data.description,
+    amount: data.amount,
+    date: data.date,
+  }).select("id").single()
+  if (error) throw new Error(error.message)
+  if (data.category && row?.id) {
+    const cats = getCategoryMap()
+    cats[row.id as string] = data.category
+    saveCategoryMap(cats)
+  }
+}
+
+export async function updateProjectBudget(budgetEstimated: number): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("projects").update({ budget_estimated: budgetEstimated }).eq("id", projectId())
+}
+
+// ─── Caja Chica (localStorage) ────────────────────────────────────────────────
+
+function cajaChicaKey(suffix: string): string {
+  return `cajachica_${projectId()}_${suffix}`
+}
+
+function getCategoryMap(): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  try { return JSON.parse(localStorage.getItem(cajaChicaKey("cats")) ?? "{}") } catch { return {} }
+}
+
+function saveCategoryMap(map: Record<string, string>): void {
+  if (typeof window !== "undefined") localStorage.setItem(cajaChicaKey("cats"), JSON.stringify(map))
+}
+
+export function getCajaChicaConfig(): { period: "daily" | "weekly" | "monthly"; budget: number } | null {
+  if (typeof window === "undefined") return null
+  try { return JSON.parse(localStorage.getItem(cajaChicaKey("config")) ?? "null") } catch { return null }
+}
+
+export function setCajaChicaConfig(cfg: { period: "daily" | "weekly" | "monthly"; budget: number }): void {
+  if (typeof window !== "undefined") localStorage.setItem(cajaChicaKey("config"), JSON.stringify(cfg))
+}
+
+export function getCajaChicaExpenses(): CajaChicaExpense[] {
+  if (typeof window === "undefined") return []
+  try { return JSON.parse(localStorage.getItem(cajaChicaKey("expenses")) ?? "[]") } catch { return [] }
+}
+
+export function addCajaChicaExpense(data: Omit<CajaChicaExpense, "id">): CajaChicaExpense {
+  const expense: CajaChicaExpense = { ...data, id: `cc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}` }
+  const all = getCajaChicaExpenses()
+  all.push(expense)
+  if (typeof window !== "undefined") localStorage.setItem(cajaChicaKey("expenses"), JSON.stringify(all))
+  return expense
 }
 
 // ─── Bulk import ──────────────────────────────────────────────────────────────
@@ -642,12 +727,41 @@ export async function bulkImportData(stages: Stage[], tasks: Task[], supplies: S
     if (error) throw new Error(`Error al importar tareas: ${error.message}`)
   }
   if (supplies.length > 0) {
-    const { error } = await supabase.from("supply_items").insert(supplies.map((s) => ({
-      id: s.id, stage_id: s.stageId, task_id: s.taskId, name: s.name,
-      unit: s.unit, planned_qty: s.plannedQty, real_qty: s.realQty,
-      estimated_unit_cost: s.estimatedUnitCost,
-      auto_discount_on_complete: s.autoDiscountOnComplete ?? false,
-    })))
+    let providerMap: Map<string, string> = new Map()
+    if (supplies.some((s) => s.providerName)) {
+      const { data: providers } = await supabase
+        .from("providers")
+        .select("id, name")
+        .eq("project_id", pid)
+      for (const p of providers ?? []) {
+        providerMap.set((p.name as string).toLowerCase().trim(), p.id as string)
+      }
+    }
+    const { error } = await supabase.from("supply_items").insert(supplies.map((s) => {
+      const resolvedProviderId = s.providerId
+        ?? (s.providerName ? providerMap.get(s.providerName.toLowerCase().trim()) : undefined)
+        ?? null
+      return {
+        id: s.id,
+        stage_id: s.stageId,
+        task_id: s.taskId ?? null,
+        name: s.name,
+        unit: s.unit,
+        planned_qty: s.plannedQty,
+        real_qty: s.realQty,
+        current_stock: s.currentStock ?? null,
+        total_purchased: s.totalPurchased ?? 0,
+        weekly_consumption: s.weeklyConsumption ?? null,
+        delivery_days: s.deliveryDays ?? null,
+        order_week: s.orderWeek ?? null,
+        purchase_status: s.purchaseStatus ?? null,
+        provider_id: resolvedProviderId,
+        estimated_unit_cost: s.estimatedUnitCost ?? null,
+        real_unit_cost: s.realUnitCost ?? null,
+        photo_url: s.photoUrl ?? null,
+        auto_discount_on_complete: s.autoDiscountOnComplete ?? false,
+      }
+    }))
     if (error) throw new Error(`Error al importar insumos: ${error.message}`)
   }
 }
@@ -851,6 +965,7 @@ function mapInvoice(r: Record<string, unknown>): Invoice {
     invoiceNumber: (r.invoice_number as string | null) ?? undefined,
     photoUrl: (r.photo_url as string | null) ?? undefined,
     notes: (r.notes as string | null) ?? undefined,
+    supplyItemId: (r.supply_item_id as string | null) ?? undefined,
   }
 }
 
@@ -881,6 +996,7 @@ export async function addInvoice(invoice: Invoice): Promise<void> {
     invoice_number: invoice.invoiceNumber ?? null,
     photo_url: invoice.photoUrl ?? null,
     notes: invoice.notes ?? null,
+    supply_item_id: invoice.supplyItemId ?? null,
   })
   if (error) throw new Error(error.message)
 }
@@ -897,6 +1013,7 @@ export async function updateInvoice(invoice: Invoice): Promise<void> {
     invoice_number: invoice.invoiceNumber ?? null,
     photo_url: invoice.photoUrl ?? null,
     notes: invoice.notes ?? null,
+    supply_item_id: invoice.supplyItemId ?? null,
   }).eq("id", invoice.id)
   if (error) throw new Error(error.message)
 }
@@ -926,6 +1043,8 @@ function mapRemito(r: Record<string, unknown>): Remito {
     photoUrl: r.photo_url as string | undefined,
     notes: r.notes as string | undefined,
     createdAt: r.created_at as string,
+    supplyItemId: (r.supply_item_id as string | null) ?? undefined,
+    supplyQty: (r.supply_qty as number | null) ?? undefined,
   }
 }
 
@@ -946,23 +1065,59 @@ export async function addRemito(r: Omit<Remito, "id" | "createdAt">): Promise<Re
   const { data, error } = await supabase
     .from("remitos")
     .insert({
-      project_id:    r.projectId,
-      supplier:      r.supplier,
-      remito_number: r.remitoNumber ?? null,
-      date:          r.date,
-      description:   r.description,
-      photo_url:     r.photoUrl ?? null,
-      notes:         r.notes ?? null,
+      project_id:      r.projectId,
+      supplier:        r.supplier,
+      remito_number:   r.remitoNumber ?? null,
+      date:            r.date,
+      description:     r.description,
+      photo_url:       r.photoUrl ?? null,
+      notes:           r.notes ?? null,
+      supply_item_id:  r.supplyItemId ?? null,
+      supply_qty:      r.supplyQty ?? null,
     })
     .select()
     .single()
   if (error) throw new Error(error.message)
+
+  // Suma la cantidad entregada a "En obra" (current_stock).
+  // total_purchased no cambia: refleja lo comprado al proveedor, no las entregas.
+  if (r.supplyItemId && r.supplyQty && r.supplyQty > 0) {
+    const { data: supply } = await supabase
+      .from("supply_items")
+      .select("current_stock")
+      .eq("id", r.supplyItemId)
+      .single()
+    if (supply) {
+      await supabase.from("supply_items").update({
+        current_stock: ((supply.current_stock as number) ?? 0) + r.supplyQty,
+      }).eq("id", r.supplyItemId)
+    }
+  }
+
   return mapRemito(data)
 }
 
 export async function deleteRemito(id: string): Promise<void> {
   const supabase = createClient()
+  // Revertir stock antes de borrar
+  const { data: remito } = await supabase
+    .from("remitos")
+    .select("supply_item_id, supply_qty")
+    .eq("id", id)
+    .single()
   await supabase.from("remitos").delete().eq("id", id)
+  if (remito?.supply_item_id && (remito.supply_qty as number) > 0) {
+    const { data: supply } = await supabase
+      .from("supply_items")
+      .select("current_stock")
+      .eq("id", remito.supply_item_id)
+      .single()
+    if (supply) {
+      await supabase.from("supply_items").update({
+        current_stock: Math.max(0, ((supply.current_stock as number) ?? 0) - (remito.supply_qty as number)),
+      }).eq("id", remito.supply_item_id)
+    }
+  }
 }
 
 // ─── Proveedores ──────────────────────────────────────────────────────────────
@@ -1031,5 +1186,61 @@ export async function updateProvider(p: Provider): Promise<void> {
 export async function deleteProvider(id: string): Promise<void> {
   const supabase = createClient()
   const { error } = await supabase.from("providers").delete().eq("id", id)
+  if (error) throw new Error(error.message)
+}
+
+// ─── Documents ────────────────────────────────────────────────────────────────
+
+function mapDocument(r: Record<string, unknown>): ProjectDocument {
+  return {
+    id:         r.id as string,
+    projectId:  r.project_id as string,
+    name:       r.name as string,
+    url:        r.url as string,
+    fileType:   r.file_type as ProjectDocument["fileType"],
+    category:   r.category as string,
+    uploadedBy: r.uploaded_by as string,
+    uploadedAt: r.uploaded_at as string,
+    notes:      r.notes as string | undefined,
+  }
+}
+
+export async function getDocuments(): Promise<ProjectDocument[]> {
+  const supabase = createClient()
+  const pid = projectId()
+  if (!pid) return []
+  const { data } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("project_id", pid)
+    .order("uploaded_at", { ascending: false })
+  return (data ?? []).map(mapDocument)
+}
+
+export async function addDocument(
+  doc: Omit<ProjectDocument, "id" | "projectId" | "uploadedAt">,
+): Promise<ProjectDocument> {
+  const supabase = createClient()
+  const pid = projectId()
+  const { data, error } = await supabase
+    .from("documents")
+    .insert({
+      project_id:  pid,
+      name:        doc.name,
+      url:         doc.url,
+      file_type:   doc.fileType,
+      category:    doc.category,
+      uploaded_by: doc.uploadedBy,
+      notes:       doc.notes ?? null,
+    })
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapDocument(data)
+}
+
+export async function deleteDocument(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from("documents").delete().eq("id", id)
   if (error) throw new Error(error.message)
 }

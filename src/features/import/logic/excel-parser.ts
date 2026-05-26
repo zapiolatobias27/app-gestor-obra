@@ -1,5 +1,6 @@
 import type { Stage, Task } from "@/types/project"
 import type { SupplyItem, ImportResult } from "@/types/stock"
+import { parseStockRows } from "./xlsx-stock-parser"
 
 export interface SheetData {
   name: string
@@ -36,7 +37,7 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
   let uid = Date.now()
 
   for (const { name, rows } of sheets) {
-    const match = name.match(/ET(\d+)/i)
+    const match = name.match(/ET\s*(\d+)/i)
     if (!match) continue
     const order = parseInt(match[1])
     const code = `ET${order}`
@@ -51,6 +52,19 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
           stageName = toTitle(after)
           break
         }
+      }
+    }
+
+    // Detect column offset: handle sheets with an extra margin column at index 0
+    let colOffset = 0
+    for (const rawRow of rows) {
+      const rowCells = (rawRow as unknown[]).map((v) => cell(v))
+      const joined = rowCells.join(" ").toUpperCase()
+      if (joined.includes("TAREA") && joined.includes("ACTIVIDAD")) {
+        for (let i = 0; i < Math.min(4, rowCells.length); i++) {
+          if (rowCells[i]) { colOffset = i; break }
+        }
+        break
       }
     }
 
@@ -86,7 +100,7 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
         continue
       }
 
-      const c0 = cells[0]
+      const c0 = cells[colOffset]
       const isTaskNum = /^\d+$/.test(c0) && parseInt(c0) > 0
 
       if (inMaterials) {
@@ -105,6 +119,7 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
               unit: cells[1],
               plannedQty: qty,
               realQty: 0,
+              totalPurchased: 0,
             })
           }
           continue
@@ -113,20 +128,20 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
 
       // Task row
       if (isTaskNum) {
-        const title = cells[2]
+        const title = cells[colOffset + 2]
         // Skip column header rows
         if (!title || joined.includes("TAREA") && joined.includes("ACTIVIDAD")) continue
-        const cat = cells[1] || currentCategory
+        const cat = cells[colOffset + 1] || currentCategory
         if (cat) currentCategory = cat
-        const weekStart = typeof row[5] === "number" ? (row[5] as number) : undefined
-        const weekEnd = typeof row[6] === "number" ? (row[6] as number) : undefined
+        const weekStart = typeof row[colOffset + 5] === "number" ? (row[colOffset + 5] as number) : undefined
+        const weekEnd = typeof row[colOffset + 6] === "number" ? (row[colOffset + 6] as number) : undefined
         tasks.push({
           id: `task-import-${++uid}`,
           stageId,
           category: currentCategory || "General",
           title,
-          status: parseTaskStatus(cells[4]),
-          responsibleRole: parseRole(cells[3]),
+          status: parseTaskStatus(cells[colOffset + 4]),
+          responsibleRole: parseRole(cells[colOffset + 3]),
           weekStart,
           weekEnd,
           photos: [],
@@ -135,14 +150,27 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
       }
 
       // Category sub-header: col0 empty, col1 has text, col2 empty
-      if (!c0 && cells[1] && !cells[2]) {
-        currentCategory = cells[1]
+      if (!c0 && cells[colOffset + 1] && !cells[colOffset + 2]) {
+        currentCategory = cells[colOffset + 1]
       }
     }
   }
 
   if (stages.length === 0) {
     errors.push({ row: 0, message: "No se encontraron etapas en el archivo. Verificá que las hojas se llamen ET1-..., ET2-..., etc." })
+  }
+
+  // Detect stock sheet (name contains "stock" or "material" but is NOT an ET sheet)
+  const stockSheet = sheets.find(
+    (s) => /stock|material/i.test(s.name) && !/^ET\s*\d/i.test(s.name),
+  )
+  if (stockSheet) {
+    const { supplies: stockSupplies, warnings: stockWarnings } = parseStockRows(
+      stockSheet.rows,
+      stages,
+    )
+    supplies.push(...stockSupplies)
+    stockWarnings.forEach((w) => errors.push({ row: 0, message: `⚠ ${w}` }))
   }
 
   return { success: errors.length === 0, stages, tasks, supplies, errors }

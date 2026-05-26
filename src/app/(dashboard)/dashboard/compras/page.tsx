@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react"
 import {
-  getPurchaseRequests, approvePurchaseRequest, rejectPurchaseRequest, createPurchaseRequest,
+  getPurchaseRequests, approvePurchaseRequest, rejectPurchaseRequest, createPurchaseRequest, updatePurchaseRequest,
   getPurchases, getStages, getTasksByStage, addPurchase, updatePurchase, updatePurchaseStatus, deletePurchase,
 } from "@/lib/mock-db"
 import { parseNum } from "@/lib/parseNum"
@@ -10,6 +10,7 @@ import { getActiveProject, getActiveProjectId } from "@/lib/projects-db"
 import { createClient } from "@/lib/supabase/client"
 import type { PurchaseRequest, PurchaseScheduleItem, Stage, Task } from "@/types/project"
 import type { UserRole } from "@/types/user"
+import { loadPermissionsCache, canView, canEdit } from "@/lib/permissions"
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -222,11 +223,21 @@ export default function ComprasPage() {
   const [role, setRole]         = useState<UserRole>("supervisor")
   const [userName, setUserName] = useState("")
 
+  // — Permissions
+  const perms = loadPermissionsCache()
+  const showSolicitudes = canView(perms, "compras.solicitudes")
+  const showMateriales  = canView(perms, "compras.materiales")
+  const canEditSolicitudes = canEdit(perms, "compras.solicitudes")
+  const canEditMateriales  = canEdit(perms, "compras.materiales")
+
   // — Shared
   const [loading, setLoading]   = useState(true)
   const [activeTab, setActiveTab] = useState<MainTab>(() => {
     if (typeof window !== "undefined") {
-      return (localStorage.getItem("compras:active-tab") as MainTab) ?? "solicitudes"
+      const saved = localStorage.getItem("compras:active-tab") as MainTab
+      if (saved === "materiales" && !canView(loadPermissionsCache(), "compras.materiales")) return "solicitudes"
+      if (saved === "solicitudes" && !canView(loadPermissionsCache(), "compras.solicitudes")) return "materiales"
+      return saved ?? "solicitudes"
     }
     return "solicitudes"
   })
@@ -239,9 +250,12 @@ export default function ComprasPage() {
   const [formAmount, setFormAmount]   = useState("")
   const [formError, setFormError]     = useState("")
   const [submitting, setSubmitting]   = useState(false)
-  const [rejectingId, setRejectingId] = useState<string | null>(null)
-  const [rejectNote, setRejectNote]   = useState("")
-  const [acting, setActing]           = useState<string | null>(null)
+  const [rejectingId, setRejectingId]   = useState<string | null>(null)
+  const [rejectNote, setRejectNote]     = useState("")
+  const [acting, setActing]             = useState<string | null>(null)
+  const [editingReqId, setEditingReqId] = useState<string | null>(null)
+  const [editReqDesc, setEditReqDesc]   = useState("")
+  const [editReqAmount, setEditReqAmount] = useState("")
 
   // — Tab: Materiales
   const [purchases, setPurchases]     = useState<PurchaseScheduleItem[]>([])
@@ -337,6 +351,16 @@ export default function ComprasPage() {
       setRejectingId(null); setRejectNote("")
       await load()
     } finally { setActing(null) }
+  }
+
+  const handleSaveEditReq = async (id: string) => {
+    const parsed = parseNum(editReqAmount)
+    if (!editReqDesc.trim() || parsed <= 0) return
+    setActing(id)
+    await updatePurchaseRequest(id, editReqDesc.trim(), parsed)
+    setEditingReqId(null)
+    await load()
+    setActing(null)
   }
 
   const handleSubmitReq = async (e: React.FormEvent) => {
@@ -442,31 +466,44 @@ export default function ComprasPage() {
 
       {/* Tab switcher */}
       <div className="flex border-b border-stone-200">
-        {(["solicitudes", "materiales"] as MainTab[]).map((tab) => (
+        {showSolicitudes && (
           <button
-            key={tab}
             type="button"
-            onClick={() => switchTab(tab)}
+            onClick={() => switchTab("solicitudes")}
             className={[
               "px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors -mb-px",
-              activeTab === tab
+              activeTab === "solicitudes"
                 ? "border-stone-800 text-stone-900"
                 : "border-transparent text-stone-400 hover:text-stone-600",
             ].join(" ")}
           >
-            {tab === "solicitudes" ? "📋 Solicitudes" : "📦 Materiales"}
-            {tab === "solicitudes" && pending.length > 0 && (
+            Solicitudes
+            {pending.length > 0 && (
               <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-white text-xs leading-none">
                 {pending.length}
               </span>
             )}
-            {tab === "materiales" && critical.length > 0 && (
+          </button>
+        )}
+        {showMateriales && (
+          <button
+            type="button"
+            onClick={() => switchTab("materiales")}
+            className={[
+              "px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors -mb-px",
+              activeTab === "materiales"
+                ? "border-stone-800 text-stone-900"
+                : "border-transparent text-stone-400 hover:text-stone-600",
+            ].join(" ")}
+          >
+            Materiales
+            {critical.length > 0 && (
               <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-xs leading-none">
                 {critical.length}
               </span>
             )}
           </button>
-        ))}
+        )}
       </div>
 
       {/* ── Tab: Solicitudes ──────────────────────────────────────────────── */}
@@ -474,7 +511,7 @@ export default function ComprasPage() {
         <div className="card-obra p-5 space-y-5">
           <div className="flex items-center justify-between">
             <h2 className="section-title">Solicitudes de compra</h2>
-            {!showReqForm && (
+            {!showReqForm && canEditSolicitudes && (
               <button type="button" className="proj-btn-primary" onClick={() => setShowReqForm(true)}>
                 + Nueva solicitud
               </button>
@@ -540,7 +577,7 @@ export default function ComprasPage() {
                     <th className="pb-2 pr-4 font-medium text-stone-500">Fecha</th>
                     <th className="pb-2 pr-4 font-medium text-stone-500 text-right">Monto</th>
                     <th className="pb-2 pr-4 font-medium text-stone-500">Estado</th>
-                    {canApprove && <th className="pb-2 font-medium text-stone-500">Acciones</th>}
+                    <th className="pb-2 font-medium text-stone-500">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -564,26 +601,36 @@ export default function ComprasPage() {
                             <p className="text-xs text-stone-400 mt-0.5 italic">"{req.rejectionNote}"</p>
                           )}
                         </td>
-                        {canApprove && (
-                          <td className="py-2">
-                            {req.status === "pending_approval" && (
-                              <div className="flex items-center gap-1">
+                        <td className="py-2">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {canApprove && req.status === "pending_approval" && (
+                              <>
                                 <button type="button" className="proj-btn-primary" style={{ fontSize: "0.75rem", padding: "0.25rem 0.75rem" }}
                                   disabled={acting === req.id} onClick={() => handleApprove(req.id)}>
                                   Aprobar
                                 </button>
                                 <button type="button" className="proj-btn-danger-sm" disabled={acting === req.id}
-                                  onClick={() => { setRejectingId(req.id); setRejectNote("") }}>
+                                  onClick={() => { setRejectingId(req.id); setRejectNote(""); setEditingReqId(null) }}>
                                   Rechazar
                                 </button>
-                              </div>
+                              </>
                             )}
-                          </td>
-                        )}
+                            <button type="button" className="proj-btn-ghost-sm"
+                              onClick={() => {
+                                setEditingReqId(req.id)
+                                setEditReqDesc(req.description)
+                                setEditReqAmount(req.amount.toString())
+                                setRejectingId(null)
+                                setRejectNote("")
+                              }}>
+                              Editar
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                       {rejectingId === req.id && (
                         <tr className="bg-stone-50">
-                          <td colSpan={canApprove ? 6 : 5} className="px-3 py-3">
+                          <td colSpan={6} className="px-3 py-3">
                             <div className="flex items-center gap-2 flex-wrap">
                               <input type="text" className="proj-form-input flex-1 min-w-[200px]"
                                 placeholder="Nota de rechazo (opcional)…" value={rejectNote}
@@ -594,6 +641,31 @@ export default function ComprasPage() {
                               </button>
                               <button type="button" className="proj-btn-ghost-sm"
                                 onClick={() => { setRejectingId(null); setRejectNote("") }}>
+                                Cancelar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      {editingReqId === req.id && (
+                        <tr className="bg-stone-50">
+                          <td colSpan={6} className="px-3 py-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <input type="text" className="proj-form-input flex-1 min-w-[200px]"
+                                placeholder="Descripción *" value={editReqDesc}
+                                onChange={(e) => setEditReqDesc(e.target.value)} autoFocus />
+                              <input type="text" inputMode="decimal" className="proj-form-input w-32"
+                                placeholder="Monto *" value={editReqAmount}
+                                onChange={(e) => setEditReqAmount(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") handleSaveEditReq(req.id) }} />
+                              <button type="button" className="proj-btn-primary"
+                                style={{ fontSize: "0.75rem", padding: "0.25rem 0.75rem" }}
+                                disabled={acting === req.id}
+                                onClick={() => handleSaveEditReq(req.id)}>
+                                {acting === req.id ? "Guardando…" : "Guardar"}
+                              </button>
+                              <button type="button" className="proj-btn-ghost-sm"
+                                onClick={() => setEditingReqId(null)}>
                                 Cancelar
                               </button>
                             </div>
@@ -616,7 +688,7 @@ export default function ComprasPage() {
             <p className="text-sm text-stone-500">
               Materiales planificados vinculados a etapas y tareas. Los que tienen semana de entrega aparecen en el calendario.
             </p>
-            {!showMatForm && (
+            {!showMatForm && canEditMateriales && (
               <button type="button" className="proj-btn-primary shrink-0" onClick={openNewMat}>
                 + Agregar material
               </button>

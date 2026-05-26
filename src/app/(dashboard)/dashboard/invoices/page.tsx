@@ -10,11 +10,14 @@ import {
   getRemitos,
   addRemito,
   deleteRemito,
+  getSupplies,
 } from "@/lib/mock-db"
 import { parseNum } from "@/lib/parseNum"
 import { getActiveProjectId } from "@/lib/projects-db"
 import { createClient } from "@/lib/supabase/client"
 import type { Invoice, PurchaseScheduleItem, Remito } from "@/types/project"
+import type { SupplyItem } from "@/types/stock"
+import { loadPermissionsCache, canView, canEdit } from "@/lib/permissions"
 
 const todayStr = new Date().toISOString().split("T")[0]
 
@@ -96,6 +99,8 @@ interface RemitoFormState {
   notes: string
   photoFile: File | null
   photoPreview: string | null
+  supplyItemId: string
+  supplyQty: string
 }
 
 const EMPTY_REMITO_FORM: RemitoFormState = {
@@ -106,6 +111,8 @@ const EMPTY_REMITO_FORM: RemitoFormState = {
   notes: "",
   photoFile: null,
   photoPreview: null,
+  supplyItemId: "",
+  supplyQty: "",
 }
 
 // ─── AFIP PDF extractor ───────────────────────────────────────────────────────
@@ -227,7 +234,76 @@ async function extractFromPdf(file: File): Promise<Partial<FormState>> {
   }
 }
 
+// ─── Remito PDF extractor ─────────────────────────────────────────────────────
+
+function parseRemitoPdfLines(lines: string[]): Partial<RemitoFormState> {
+  const result: Partial<RemitoFormState> = {}
+
+  // Supplier: first non-trivial line that's not a document type header
+  const skipHeader = /^(remito|recibo|nota de entrega|delivery|r e m i t o)/i
+  const firstMeaningful = lines.find((l) => l.trim().length > 3 && !skipHeader.test(l.trim()))
+  if (firstMeaningful) result.supplier = firstMeaningful.trim()
+
+  // Remito number: look for "Nro:", "N°:", "Remito N°:" patterns
+  for (const line of lines) {
+    const m = line.match(/(?:Nro\.?|N[°º]\.?|Remito\s+N[°º]\.?)[\s:]*([A-Z0-9\-\/]+)/i)
+    if (m && m[1] && m[1].length >= 3 && m[1].length <= 20) {
+      result.remitoNumber = m[1].trim()
+      break
+    }
+  }
+
+  // Date: first DD/MM/YYYY pattern
+  for (const line of lines) {
+    const m = line.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+    if (m) {
+      result.date = `${m[3]}-${m[2]}-${m[1]}`
+      break
+    }
+  }
+
+  // Description: lines that look like material descriptions (contain both digits and letters)
+  const skipDesc = /cuit|iva|tel[eé]f|direcc|ciudad|provinci|e-mail|web|http|fecha|firma|sello|total|subtotal|neto|tributo|descuento/i
+  const descLines: string[] = []
+  for (const line of lines) {
+    const t = line.trim()
+    if (!t || t.length < 5) continue
+    if (skipDesc.test(t)) continue
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(t)) continue
+    if (/\d/.test(t) && /[a-záéíóúñ]/i.test(t)) {
+      descLines.push(t)
+      if (descLines.length >= 3) break
+    }
+  }
+  if (descLines.length > 0) result.description = descLines.join("; ")
+
+  return result
+}
+
+async function extractFromRemitoPdf(file: File): Promise<Partial<RemitoFormState>> {
+  try {
+    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf" as string) as typeof import("pdfjs-dist")
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js"
+    const buffer = await file.arrayBuffer()
+    const pdf    = await pdfjsLib.getDocument({ data: buffer }).promise
+    const page   = await pdf.getPage(1)
+    const tc     = await page.getTextContent()
+    const lines  = (tc.items as Array<{ str: string }>)
+      .map((i) => i.str.trim())
+      .filter(Boolean)
+    return parseRemitoPdfLines(lines)
+  } catch {
+    return {}
+  }
+}
+
 export default function InvoicesPage() {
+  const perms = loadPermissionsCache()
+  const showFacturas = canView(perms, "invoices.facturas")
+  const showRemitos  = canView(perms, "invoices.remitos")
+  const canEditFacturas = canEdit(perms, "invoices.facturas")
+  const canEditRemitos  = canEdit(perms, "invoices.remitos")
+
   const [invoices, setInvoices] = useState<EnrichedInvoice[]>([])
   const [purchases, setPurchases] = useState<PurchaseScheduleItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -241,21 +317,25 @@ export default function InvoicesPage() {
   const [pdfPreview, setPdfPreview]   = useState<string | null>(null)
   const [imgPreview, setImgPreview]   = useState<string | null>(null)
   const pdfRef   = useRef<HTMLInputElement>(null)
-  const [activeTab, setActiveTab]           = useState<"facturas" | "remitos">("facturas")
+  const [activeTab, setActiveTab] = useState<"facturas" | "remitos">(showFacturas ? "facturas" : "remitos")
   const [remitos, setRemitos]               = useState<Remito[]>([])
+  const [supplies, setSupplies]             = useState<SupplyItem[]>([])
   const [showRemitoForm, setShowRemitoForm] = useState(false)
   const [remitoForm, setRemitoForm]         = useState<RemitoFormState>(EMPTY_REMITO_FORM)
   const [remitoSubmitting, setRemitoSubmitting] = useState(false)
   const [remitoError, setRemitoError]       = useState("")
+  const [extractingRemito, setExtractingRemito] = useState(false)
+  const [autoFilledRemito, setAutoFilledRemito] = useState(false)
   const remitoFileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [invs, purs, rems] = await Promise.all([getInvoices(), getPurchases(), getRemitos()])
+      const [invs, purs, rems, sups] = await Promise.all([getInvoices(), getPurchases(), getRemitos(), getSupplies()])
       setInvoices(invs.map((inv) => ({ ...inv, _status: effectiveStatus(inv) })))
       setPurchases(purs)
       setRemitos(rems)
+      setSupplies(sups)
     } finally {
       setLoading(false)
     }
@@ -354,7 +434,7 @@ export default function InvoicesPage() {
       resetForm()
       await load()
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Error al guardar la factura")
+      setFormError(err instanceof Error ? err.message : "Error al guardar el ticket")
     } finally {
       setSubmitting(false)
     }
@@ -366,7 +446,7 @@ export default function InvoicesPage() {
   }
 
   const handleDelete = async (id: string) => {
-    if (!confirm("¿Eliminar esta factura?")) return
+    if (!confirm("¿Eliminar este ticket?")) return
     await deleteInvoice(id)
     await load()
   }
@@ -375,13 +455,15 @@ export default function InvoicesPage() {
     if (remitoForm.photoPreview) URL.revokeObjectURL(remitoForm.photoPreview)
     setRemitoForm(EMPTY_REMITO_FORM)
     setRemitoError("")
+    setAutoFilledRemito(false)
     setShowRemitoForm(false)
   }
 
   const handleRemitoSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!remitoForm.supplier.trim() || !remitoForm.description.trim() || !remitoForm.date) {
-      setRemitoError("Proveedor, descripción y fecha son obligatorios.")
+    const descRequired = !remitoForm.supplyItemId
+    if (!remitoForm.supplier.trim() || !remitoForm.date || (descRequired && !remitoForm.description.trim())) {
+      setRemitoError(descRequired ? "Proveedor, descripción y fecha son obligatorios." : "Proveedor y fecha son obligatorios.")
       return
     }
     setRemitoSubmitting(true)
@@ -402,6 +484,7 @@ export default function InvoicesPage() {
         photoUrl = publicUrl
       }
 
+      const supplyQtyParsed = parseNum(remitoForm.supplyQty)
       await addRemito({
         projectId: getActiveProjectId() ?? "",
         supplier: remitoForm.supplier.trim(),
@@ -410,6 +493,8 @@ export default function InvoicesPage() {
         description: remitoForm.description.trim(),
         notes: remitoForm.notes.trim() || undefined,
         photoUrl,
+        supplyItemId: remitoForm.supplyItemId || undefined,
+        supplyQty: remitoForm.supplyItemId && supplyQtyParsed > 0 ? supplyQtyParsed : undefined,
       })
 
       resetRemitoForm()
@@ -432,14 +517,14 @@ export default function InvoicesPage() {
     <div className="page-wrap space-y-6">
       <div>
         <p className="page-eyebrow">Gestión económica</p>
-        <h1 className="page-title">Facturas y Compras</h1>
-        <p className="page-subtitle">Seguimiento de gastos, compras planificadas y facturas registradas.</p>
+        <h1 className="page-title">Tickets y Compras</h1>
+        <p className="page-subtitle">Seguimiento de gastos, compras planificadas y tickets registrados.</p>
       </div>
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="stat-card stat-card-accent-blue">
-          <p className="stat-card-label">Total facturado</p>
+          <p className="stat-card-label">Total tickets</p>
           <p className="stat-card-value">{fmt(totalFacturado)}</p>
         </div>
         <div className="stat-card stat-card-accent-green">
@@ -453,7 +538,7 @@ export default function InvoicesPage() {
         <div className="stat-card stat-card-accent-red">
           <p className="stat-card-label">Vencidas</p>
           <p className="stat-card-value">{totalVencidas}</p>
-          <p className="stat-card-sub">{totalVencidas === 1 ? "factura" : "facturas"}</p>
+          <p className="stat-card-sub">{totalVencidas === 1 ? "ticket" : "tickets"}</p>
         </div>
       </div>
 
@@ -516,31 +601,35 @@ export default function InvoicesPage() {
       <div className="card-obra p-5">
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
           <div className="flex gap-1 bg-stone-100 rounded-lg p-1">
-            <button
-              type="button"
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === "facturas" ? "bg-white shadow-sm text-stone-900" : "text-stone-500 hover:text-stone-700"
-              }`}
-              onClick={() => { setActiveTab("facturas"); resetRemitoForm() }}
-            >
-              Facturas
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === "remitos" ? "bg-white shadow-sm text-stone-900" : "text-stone-500 hover:text-stone-700"
-              }`}
-              onClick={() => { setActiveTab("remitos"); resetForm() }}
-            >
-              Remitos
-            </button>
+            {showFacturas && (
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === "facturas" ? "bg-white shadow-sm text-stone-900" : "text-stone-500 hover:text-stone-700"
+                }`}
+                onClick={() => { setActiveTab("facturas"); resetRemitoForm() }}
+              >
+                Tickets
+              </button>
+            )}
+            {showRemitos && (
+              <button
+                type="button"
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === "remitos" ? "bg-white shadow-sm text-stone-900" : "text-stone-500 hover:text-stone-700"
+                }`}
+                onClick={() => { setActiveTab("remitos"); resetForm() }}
+              >
+                Remitos
+              </button>
+            )}
           </div>
-          {activeTab === "facturas" && !showForm && (
+          {activeTab === "facturas" && !showForm && canEditFacturas && (
             <button type="button" className="proj-btn-primary" onClick={() => setShowForm(true)}>
-              + Nueva factura
+              + Nuevo ticket
             </button>
           )}
-          {activeTab === "remitos" && !showRemitoForm && (
+          {activeTab === "remitos" && !showRemitoForm && canEditRemitos && (
             <button type="button" className="proj-btn-primary" onClick={() => setShowRemitoForm(true)}>
               + Nuevo remito
             </button>
@@ -552,7 +641,7 @@ export default function InvoicesPage() {
           <>
             {showForm && (
               <div className="mb-6 bg-stone-50 rounded-xl p-4 space-y-4 border border-stone-100">
-                <h3 className="font-semibold text-stone-800">Nueva factura</h3>
+                <h3 className="font-semibold text-stone-800">Nuevo ticket</h3>
 
                 {!form.photoFile && !extracting && (
                   <div
@@ -619,7 +708,7 @@ export default function InvoicesPage() {
                           placeholder="Ej: Hormicenter SA" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-stone-600 mb-1">N° de factura</label>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">N° de ticket</label>
                         <input type="text" className="proj-form-input w-full" value={form.invoiceNumber}
                           onChange={(e) => setForm((f) => ({ ...f, invoiceNumber: e.target.value }))}
                           placeholder="Ej: 1-00000013" />
@@ -646,7 +735,7 @@ export default function InvoicesPage() {
 
                     <div className="flex gap-2">
                       <button type="submit" className="proj-btn-primary" disabled={submitting}>
-                        {submitting ? "Guardando…" : "Guardar factura"}
+                        {submitting ? "Guardando…" : "Guardar ticket"}
                       </button>
                       <button type="button" className="proj-btn-ghost" onClick={resetForm} disabled={submitting}>
                         Cancelar
@@ -668,7 +757,7 @@ export default function InvoicesPage() {
             {loading ? (
               <p className="text-sm text-stone-400">Cargando…</p>
             ) : invoices.length === 0 ? (
-              <p className="text-sm text-stone-400">No hay facturas registradas aún.</p>
+              <p className="text-sm text-stone-400">No hay tickets registrados aún.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -748,14 +837,45 @@ export default function InvoicesPage() {
                         onChange={(e) => setRemitoForm((f) => ({ ...f, date: e.target.value }))} />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-xs font-medium text-stone-600 mb-1">Descripción *</label>
+                      <label className="block text-xs font-medium text-stone-600 mb-1">
+                        Descripción {remitoForm.supplyItemId ? <span className="text-stone-400 font-normal">(opcional)</span> : "*"}
+                      </label>
                       <input type="text" className="proj-form-input w-full" value={remitoForm.description}
                         onChange={(e) => setRemitoForm((f) => ({ ...f, description: e.target.value }))}
                         placeholder="Ej: 50 bolsas cemento Portland, 20 varillas 12mm" />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="block text-xs font-medium text-stone-600 mb-1">Foto del remito</label>
-                      {remitoForm.photoPreview ? (
+                      <label className="block text-xs font-medium text-stone-600 mb-1">Foto o PDF del remito</label>
+                      {extractingRemito ? (
+                        <div className="flex items-center gap-3 border border-stone-200 rounded-lg px-4 py-3 bg-stone-50">
+                          <svg className="animate-spin shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeOpacity=".3" />
+                            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                          </svg>
+                          <span className="text-sm text-stone-500">Leyendo PDF…</span>
+                        </div>
+                      ) : remitoForm.photoPreview && remitoForm.photoFile?.type === "application/pdf" ? (
+                        <div className="flex items-center gap-3 border border-stone-200 rounded-lg px-3 py-2 bg-white">
+                          <svg width="28" height="28" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-red-500 shrink-0">
+                            <rect x="3" y="1" width="11" height="15" rx="1.5" fill="currentColor" opacity=".2" stroke="currentColor" strokeWidth="1.2" />
+                            <path d="M11 1v4h4" stroke="currentColor" strokeWidth="1.2" fill="none" opacity=".5" />
+                            <text x="5" y="13" fontSize="5" fontWeight="bold" fill="currentColor" fontFamily="sans-serif">PDF</text>
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-stone-700 truncate">{remitoForm.photoFile.name}</p>
+                            {autoFilledRemito && <p className="text-xs text-green-600 font-medium">Datos extraídos automáticamente</p>}
+                          </div>
+                          <button type="button" className="proj-btn-ghost-sm shrink-0"
+                            onClick={() => {
+                              if (remitoForm.photoPreview) URL.revokeObjectURL(remitoForm.photoPreview)
+                              setRemitoForm((f) => ({ ...f, photoFile: null, photoPreview: null }))
+                              setAutoFilledRemito(false)
+                              if (remitoFileRef.current) remitoFileRef.current.value = ""
+                            }}>
+                            Cambiar
+                          </button>
+                        </div>
+                      ) : remitoForm.photoPreview ? (
                         <div className="flex items-center gap-3">
                           <img
                             src={remitoForm.photoPreview}
@@ -769,7 +889,7 @@ export default function InvoicesPage() {
                               setRemitoForm((f) => ({ ...f, photoFile: null, photoPreview: null }))
                               if (remitoFileRef.current) remitoFileRef.current.value = ""
                             }}>
-                            Cambiar foto
+                            Cambiar
                           </button>
                         </div>
                       ) : (
@@ -780,14 +900,31 @@ export default function InvoicesPage() {
                             <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
                             <circle cx="12" cy="13" r="4" />
                           </svg>
-                          Sacar foto o elegir imagen (opcional)
+                          Subir foto o PDF (opcional)
                         </button>
                       )}
-                      <input ref={remitoFileRef} type="file" accept="image/*" capture="environment" className="hidden"
+                      <input ref={remitoFileRef} type="file" accept="image/*,application/pdf" className="hidden"
                         onChange={(e) => {
                           const file = e.target.files?.[0]
                           if (!file) return
                           setRemitoForm((f) => ({ ...f, photoFile: file, photoPreview: URL.createObjectURL(file) }))
+                          if (file.type === "application/pdf") {
+                            setAutoFilledRemito(false)
+                            setExtractingRemito(true)
+                            extractFromRemitoPdf(file).then((extracted) => {
+                              if (Object.keys(extracted).length > 0) {
+                                setRemitoForm((f) => ({
+                                  ...f,
+                                  supplier:     extracted.supplier     ? extracted.supplier     : f.supplier,
+                                  remitoNumber: extracted.remitoNumber ? extracted.remitoNumber : f.remitoNumber,
+                                  date:         extracted.date         ? extracted.date         : f.date,
+                                  description:  extracted.description  ? extracted.description  : f.description,
+                                }))
+                                setAutoFilledRemito(true)
+                              }
+                            }).finally(() => setExtractingRemito(false))
+                          }
+                          e.target.value = ""
                         }} />
                     </div>
                     <div className="sm:col-span-2">
@@ -797,6 +934,35 @@ export default function InvoicesPage() {
                         onChange={(e) => setRemitoForm((f) => ({ ...f, notes: e.target.value }))}
                         placeholder="Observaciones, condiciones, etc." />
                     </div>
+
+                    {/* Material vinculado */}
+                    <div>
+                      <label className="block text-xs font-medium text-stone-600 mb-1">Material vinculado <span className="text-stone-400 font-normal">(opcional)</span></label>
+                      <select
+                        className="proj-form-input w-full"
+                        value={remitoForm.supplyItemId}
+                        onChange={(e) => setRemitoForm((f) => ({ ...f, supplyItemId: e.target.value, supplyQty: "" }))}
+                      >
+                        <option value="">— Ninguno —</option>
+                        {supplies.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name} ({s.unit})</option>
+                        ))}
+                      </select>
+                    </div>
+                    {remitoForm.supplyItemId && (
+                      <div>
+                        <label className="block text-xs font-medium text-stone-600 mb-1">Cantidad recibida *</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="proj-form-input w-full"
+                          value={remitoForm.supplyQty}
+                          onChange={(e) => setRemitoForm((f) => ({ ...f, supplyQty: e.target.value }))}
+                          placeholder="0"
+                        />
+                        <p className="text-xs text-stone-400 mt-1">Se suma automáticamente a <strong>En obra</strong> del material en Stock.</p>
+                      </div>
+                    )}
                   </div>
                   {remitoError && <p className="text-sm text-red-600">{remitoError}</p>}
                   <div className="flex gap-2">
@@ -826,26 +992,42 @@ export default function InvoicesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {remitos.map((r) => (
-                      <tr key={r.id} className="border-b border-stone-50 hover:bg-stone-50">
-                        <td className="py-2 pr-3 text-stone-400 text-xs tabular-nums">{r.remitoNumber ?? "—"}</td>
-                        <td className="py-2 pr-3 font-medium text-stone-800 max-w-[140px] truncate">{r.supplier}</td>
-                        <td className="py-2 pr-3 text-stone-600 max-w-[200px] truncate">{r.description}</td>
-                        <td className="py-2 pr-3 text-stone-500 tabular-nums whitespace-nowrap">{fmtDate(r.date)}</td>
-                        <td className="py-2">
-                          <div className="flex items-center gap-1 flex-wrap">
-                            {r.photoUrl && (
-                              <button type="button" className="proj-btn-ghost-sm" onClick={() => setImgPreview(r.photoUrl!)}>
-                                Ver foto
-                              </button>
+                    {remitos.map((r) => {
+                      const linkedSupply = r.supplyItemId ? supplies.find((s) => s.id === r.supplyItemId) : undefined
+                      return (
+                        <tr key={r.id} className="border-b border-stone-50 hover:bg-stone-50">
+                          <td className="py-2 pr-3 text-stone-400 text-xs tabular-nums">{r.remitoNumber ?? "—"}</td>
+                          <td className="py-2 pr-3 font-medium text-stone-800 max-w-[140px] truncate">{r.supplier}</td>
+                          <td className="py-2 pr-3 text-stone-600 max-w-[200px]">
+                            <p className="truncate">{r.description}</p>
+                            {linkedSupply && (
+                              <span className="inline-flex items-center gap-1 text-xs bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full mt-0.5">
+                                📦 {linkedSupply.name}{r.supplyQty ? ` · ${r.supplyQty} ${linkedSupply.unit}` : ""}
+                              </span>
                             )}
-                            <button type="button" className="proj-btn-danger-sm" onClick={() => handleRemitoDelete(r.id)}>
-                              Eliminar
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="py-2 pr-3 text-stone-500 tabular-nums whitespace-nowrap">{fmtDate(r.date)}</td>
+                          <td className="py-2">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {r.photoUrl && (
+                                r.photoUrl.toLowerCase().includes(".pdf") ? (
+                                  <button type="button" className="proj-btn-ghost-sm" onClick={() => setPdfPreview(r.photoUrl!)}>
+                                    Ver PDF
+                                  </button>
+                                ) : (
+                                  <button type="button" className="proj-btn-ghost-sm" onClick={() => setImgPreview(r.photoUrl!)}>
+                                    Ver foto
+                                  </button>
+                                )
+                              )}
+                              <button type="button" className="proj-btn-danger-sm" onClick={() => handleRemitoDelete(r.id)}>
+                                Eliminar
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

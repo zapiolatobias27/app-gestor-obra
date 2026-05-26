@@ -14,6 +14,7 @@ const empty = (): SupplyItem => ({
   unit: "",
   plannedQty: 0,
   realQty: 0,
+  totalPurchased: 0,
 })
 
 function Chevron({ open }: { open: boolean }): React.ReactElement {

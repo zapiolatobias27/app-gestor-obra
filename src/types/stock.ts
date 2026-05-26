@@ -6,12 +6,17 @@ export interface SupplyItem {
   unit: string
   plannedQty: number
   realQty: number
-  currentStock?: number      // unidades físicas disponibles hoy en obra
+  currentStock?: number      // unidades físicas disponibles hoy en obra (en obra)
+  totalPurchased: number     // comprado total acumulado
   weeklyConsumption?: number // unidades consumidas por semana (manual o calculado)
   deliveryDays?: number      // días de plazo del proveedor para este insumo
+  orderWeek?: number         // semana en que se hizo el pedido
+  purchaseStatus?: "pending" | "ordered" | "delivered" | "critical"
   providerId?: string
+  providerName?: string
   estimatedUnitCost?: number
   realUnitCost?: number
+  photoUrl?: string          // foto comprobante de entrega
   autoDiscountOnComplete?: boolean
 }
 

@@ -5,10 +5,12 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { UserRole } from "@/types/user"
+import type { MemberPermissions } from "@/types/project"
 import { createClient } from "@/lib/supabase/client"
 import { signOut } from "@/lib/auth-client"
 import { getActiveProjectId } from "@/lib/projects-db"
 import { getProject } from "@/lib/mock-db"
+import { savePermissionsCache, sectionVisible, HREF_TO_PERM_KEYS } from "@/lib/permissions"
 
 const ROLE_LABEL: Record<UserRole, string> = {
   owner: "Propietario",
@@ -127,6 +129,25 @@ function IconUsers() {
   )
 }
 
+function IconWallet() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1" y="3.5" width="14" height="10" rx="1.5" fill="currentColor" opacity=".45" />
+      <path d="M1 6.5H15" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="10" y="9" width="3.5" height="2" rx="1" fill="currentColor" opacity=".9" />
+    </svg>
+  )
+}
+
+function IconFolder() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M1.5 4.5A1.5 1.5 0 0 1 3 3h3l1.5 1.5H13A1.5 1.5 0 0 1 14.5 6v6A1.5 1.5 0 0 1 13 13.5H3A1.5 1.5 0 0 1 1.5 12V4.5Z" fill="currentColor" opacity=".45" />
+      <path d="M1.5 6.5h13" stroke="currentColor" strokeWidth="1" opacity=".5" />
+    </svg>
+  )
+}
+
 function IconClipboardList() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -163,9 +184,11 @@ const FULL_ACCESS_NAV: NavItem[] = [
   { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,   section: "Obra" },
   { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,  section: "Obra" },
   { label: "Proveedores", href: "/dashboard/proveedores", icon: <IconUsers />,         section: "Administración" },
-  { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
+  { label: "Tickets y Compras",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
   { label: "Compras y Materiales",   href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
+  { label: "Caja",       href: "/dashboard/caja",       icon: <IconWallet />,        section: "Administración" },
   { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
+  { label: "Documentos", href: "/dashboard/documentos", icon: <IconFolder />,        section: "Registro" },
   { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,         section: "Registro" },
   { label: "Importar",   href: "/dashboard/import",     icon: <IconUpload />,   section: "Admin" },
 ]
@@ -178,9 +201,10 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Etapas",     href: "/dashboard/stages",     icon: <IconLayers />,       section: "Obra" },
     { label: "Stock",      href: "/dashboard/stock",      icon: <IconPackage />,      section: "Obra" },
     { label: "Proveedores", href: "/dashboard/proveedores", icon: <IconUsers />,         section: "Administración" },
-    { label: "Facturas",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
+    { label: "Tickets y Compras",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
     { label: "Compras y Materiales",    href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
     { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
+    { label: "Documentos", href: "/dashboard/documentos", icon: <IconFolder />,       section: "Registro" },
     { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,        section: "Registro" },
   ],
 }
@@ -194,10 +218,11 @@ interface AppSidebarProps {
 export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const [role, setRole]         = useState<UserRole>("supervisor")
-  const [userName, setUserName] = useState("")
-  const [userEmail, setUserEmail] = useState("")
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [role, setRole]               = useState<UserRole>("supervisor")
+  const [permissions, setPermissions] = useState<MemberPermissions | null>(null)
+  const [userName, setUserName]       = useState("")
+  const [userEmail, setUserEmail]     = useState("")
+  const [menuOpen, setMenuOpen]       = useState(false)
   const [projectName, setProjectName] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -223,11 +248,15 @@ export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
       if (!pid) return
       const { data: member } = await supabase
         .from("project_members")
-        .select("role")
+        .select("role, allowed_routes")
         .eq("user_id", user.id)
         .eq("project_id", pid)
         .single()
       setRole((member?.role as UserRole) ?? "supervisor")
+      const raw = member?.allowed_routes
+      const perms = raw && !Array.isArray(raw) ? raw as MemberPermissions : null
+      setPermissions(perms)
+      savePermissionsCache(perms)
     })
   }, [pathname])
 
@@ -252,7 +281,9 @@ export function AppSidebar({ open, onClose, onToggle }: AppSidebarProps) {
     router.refresh()
   }
 
-  const navItems = NAV_BY_ROLE[role] ?? NAV_BY_ROLE.supervisor
+  const navItems = permissions != null
+    ? FULL_ACCESS_NAV.filter((item) => sectionVisible(permissions, ...(HREF_TO_PERM_KEYS[item.href] ?? [])))
+    : NAV_BY_ROLE[role] ?? NAV_BY_ROLE.supervisor
 
   const sections = navItems.reduce<Record<string, NavItem[]>>((acc, item) => {
     const key = item.section ?? ""

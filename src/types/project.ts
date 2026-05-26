@@ -4,12 +4,16 @@ export type TaskStatus = "pending" | "in_progress" | "completed" | "blocked"
 import type { UserRole } from "@/types/user"
 export type { UserRole }
 
+export type PermNode = { view: boolean; edit: boolean }
+export type MemberPermissions = Record<string, PermNode>
+
 export interface ProjectMember {
   userId: string
   name: string
   email: string
   role: UserRole
   joinedAt: string
+  permissions?: MemberPermissions
 }
 
 export interface JoinRequest {
@@ -50,6 +54,10 @@ export interface Project {
   members?: ProjectMember[]
   joinRequests?: JoinRequest[]
   inviteCode?: string
+  cajachicaConfig?: {
+    period: "daily" | "weekly" | "monthly"
+    budget: number
+  }
 }
 
 export interface Stage {
@@ -97,6 +105,8 @@ export interface Remito {
   photoUrl?: string
   notes?: string
   createdAt: string
+  supplyItemId?: string  // material vinculado (auto-actualiza stock al registrar)
+  supplyQty?: number     // cantidad recibida en este remito
 }
 
 export interface Provider {
@@ -174,6 +184,15 @@ export interface BudgetMovement {
   amount: number        // negativo = egreso
   date: string          // ISO datetime
   purchaseRequestId?: string
+  category?: string     // "Materiales" | "Mano de obra" | "Equipos" | "Servicios" | "Otros"
+}
+
+export interface CajaChicaExpense {
+  id: string
+  description: string
+  amount: number        // positivo (gasto)
+  date: string          // ISO date "YYYY-MM-DD"
+  category?: string
 }
 
 export interface Invoice {
@@ -187,5 +206,18 @@ export interface Invoice {
   status: "pending" | "paid" | "overdue"
   invoiceNumber?: string
   photoUrl?: string
+  notes?: string
+  supplyItemId?: string     // material relacionado (solo referencia documental)
+}
+
+export interface ProjectDocument {
+  id: string
+  projectId: string
+  name: string
+  url: string
+  fileType: "pdf" | "image" | "other"
+  category: string
+  uploadedBy: string
+  uploadedAt: string
   notes?: string
 }

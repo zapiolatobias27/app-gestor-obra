@@ -1,7 +1,7 @@
 "use client"
 
 import { createClient } from "@/lib/supabase/client"
-import type { Project, ProjectMember, JoinRequest } from "@/types/project"
+import type { Project, ProjectMember, JoinRequest, MemberPermissions } from "@/types/project"
 import type { UserRole } from "@/types/user"
 
 // El ID del proyecto activo sigue en localStorage (es solo una preferencia de UI)
@@ -35,12 +35,15 @@ function mapProject(row: Record<string, unknown>): Project {
 }
 
 function mapMember(row: Record<string, unknown>): ProjectMember {
+  const raw = row.allowed_routes
+  const permissions = raw && !Array.isArray(raw) ? raw as MemberPermissions : undefined
   return {
     userId: row.user_id as string,
     name: row.name as string,
     email: row.email as string,
     role: row.role as UserRole,
     joinedAt: row.joined_at as string,
+    permissions,
   }
 }
 
@@ -209,6 +212,15 @@ export async function deleteProject(projectId: string): Promise<void> {
   const supabase = createClient()
   const { error } = await supabase.rpc("delete_project_for_owner", { p_project_id: projectId })
   if (error) throw new Error(error.message)
+}
+
+export async function updateMemberPermissions(projectId: string, userId: string, permissions: MemberPermissions): Promise<void> {
+  const supabase = createClient()
+  await supabase
+    .from("project_members")
+    .update({ allowed_routes: permissions })
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
 }
 
 // Tipo exportado para compatibilidad con código existente
