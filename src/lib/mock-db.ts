@@ -727,7 +727,7 @@ export async function bulkImportData(stages: Stage[], tasks: Task[], supplies: S
     if (error) throw new Error(`Error al importar tareas: ${error.message}`)
   }
   if (supplies.length > 0) {
-    let providerMap: Map<string, string> = new Map()
+    const providerMap: Map<string, string> = new Map()
     if (supplies.some((s) => s.providerName)) {
       const { data: providers } = await supabase
         .from("providers")
