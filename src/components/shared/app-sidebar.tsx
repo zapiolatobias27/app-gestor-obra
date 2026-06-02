@@ -188,7 +188,7 @@ const FULL_ACCESS_NAV: NavItem[] = [
   { label: "Compras y Materiales",   href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
   { label: "Caja",       href: "/dashboard/caja",       icon: <IconWallet />,        section: "Administración" },
   { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
-  { label: "Documentos", href: "/dashboard/documentos", icon: <IconFolder />,        section: "Registro" },
+  { label: "Documentación", href: "/dashboard/documentos", icon: <IconFolder />,        section: "Registro" },
   { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,         section: "Registro" },
   { label: "Importar",   href: "/dashboard/import",     icon: <IconUpload />,   section: "Admin" },
 ]
@@ -204,7 +204,7 @@ const NAV_BY_ROLE: Record<UserRole, NavItem[]> = {
     { label: "Tickets y Compras",   href: "/dashboard/invoices",   icon: <IconReceipt />,       section: "Administración" },
     { label: "Compras y Materiales",    href: "/dashboard/compras",    icon: <IconClipboardList />, section: "Administración" },
     { label: "Calendario", href: "/dashboard/calendario", icon: <IconCalendar />,     section: "Obra" },
-    { label: "Documentos", href: "/dashboard/documentos", icon: <IconFolder />,       section: "Registro" },
+    { label: "Documentación", href: "/dashboard/documentos", icon: <IconFolder />,       section: "Registro" },
     { label: "Fotos",      href: "/dashboard/photos",     icon: <IconImage />,        section: "Registro" },
   ],
 }

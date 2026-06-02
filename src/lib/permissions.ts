@@ -28,7 +28,7 @@ export const PERM_TREE: PermTreeNode[] = [
     { key: "caja.grande", label: "Caja Grande", hasEdit: true },
     { key: "caja.chica",  label: "Caja Chica",  hasEdit: true },
   ]},
-  { key: "documentos", label: "Documentos", hasEdit: true },
+  { key: "documentos", label: "Documentación", hasEdit: true },
   { key: "fotos",      label: "Fotos",      hasEdit: true },
   { key: "import",     label: "Importar",   hasEdit: true },
 ]

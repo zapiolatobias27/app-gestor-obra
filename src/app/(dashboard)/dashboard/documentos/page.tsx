@@ -261,7 +261,7 @@ export default function DocumentosPage() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <p className="page-eyebrow">Registro</p>
-            <h1 className="page-title">Documentos</h1>
+            <h1 className="page-title">Documentación</h1>
             <p className="page-subtitle">Planos, permisos y documentación de la obra.</p>
           </div>
           {canUpload && !showForm && (
