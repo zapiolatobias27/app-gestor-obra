@@ -33,3 +33,18 @@ export async function getProfile() {
   const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single()
   return data
 }
+
+export async function forgotPassword(email: string) {
+  const supabase = createClient()
+  const origin = window.location.origin
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/callback?next=/reset-password`,
+  })
+  if (error) throw new Error(error.message)
+}
+
+export async function updatePassword(newPassword: string) {
+  const supabase = createClient()
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw new Error(error.message)
+}

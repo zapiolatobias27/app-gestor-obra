@@ -139,6 +139,14 @@ export function LoginForm() {
             </div>
 
 
+            {mode === "login" && (
+              <div className="text-right -mt-2">
+                <a href="/forgot-password" className="text-sm text-[var(--clay-500)] hover:text-[var(--clay-700)] transition-colors">
+                  ¿Olvidaste tu contraseña?
+                </a>
+              </div>
+            )}
+
             <button type="submit" disabled={loading} className="login-btn">
               {loading
                 ? "Procesando..."
