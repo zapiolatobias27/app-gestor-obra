@@ -343,12 +343,12 @@ export async function addPhotoToTask(taskId: string, stageId: string, url: strin
   return mapPhoto(data)
 }
 
-export async function addPhoto(url: string, caption: string, uploadedBy: string): Promise<Photo> {
+export async function addPhoto(url: string, caption: string, uploadedBy: string, stageId?: string, taskId?: string): Promise<Photo> {
   const supabase = createClient()
   const pid = projectId()
   const { data, error } = await supabase
     .from("photos")
-    .insert({ project_id: pid, url, caption, uploaded_by: uploadedBy })
+    .insert({ project_id: pid, url, caption, uploaded_by: uploadedBy, stage_id: stageId ?? null, task_id: taskId ?? null })
     .select()
     .single()
   if (error) throw new Error(error.message)
@@ -358,6 +358,18 @@ export async function addPhoto(url: string, caption: string, uploadedBy: string)
 export async function deletePhoto(photoId: string): Promise<void> {
   const supabase = createClient()
   await supabase.from("photos").delete().eq("id", photoId)
+}
+
+export async function getStagePhotos(stageId: string): Promise<Photo[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from("photos")
+    .select("*")
+    .eq("stage_id", stageId)
+    .is("task_id", null)
+    .order("uploaded_at", { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(mapPhoto)
 }
 
 export async function getTaskPhotos(taskId: string): Promise<Photo[]> {

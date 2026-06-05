@@ -2,11 +2,11 @@
 
 import React, { useEffect, useRef, useState } from "react"
 import { Trash2 } from "lucide-react"
-import { getProjectPhotos, getStages, addPhoto, deletePhoto } from "@/lib/mock-db"
+import { getProjectPhotos, getStages, getTasks, addPhoto, deletePhoto } from "@/lib/mock-db"
 import { PhotoUpload } from "@/features/photos/components/photo-upload"
 import { loadPermissionsCache, canEdit } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/client"
-import type { Photo, Stage } from "@/types/project"
+import type { Photo, Stage, Task } from "@/types/project"
 
 function PhotoAlbum({ title, code, photos, onPhotoClick, onDelete, canDelete }: {
   title: string
@@ -85,9 +85,11 @@ function PhotoAlbum({ title, code, photos, onPhotoClick, onDelete, canDelete }: 
   )
 }
 
-function AddPhotoModal({ onClose, onAdded }: {
+function AddPhotoModal({ onClose, onAdded, stages, tasks }: {
   onClose: () => void
   onAdded: (photo: Photo) => void
+  stages: Stage[]
+  tasks: Task[]
 }) {
   const [userName, setUserName] = useState("usuario")
 
@@ -100,8 +102,8 @@ function AddPhotoModal({ onClose, onAdded }: {
     })
   }, [])
 
-  const handleUpload = async (url: string, caption?: string) => {
-    const photo = await addPhoto(url, caption ?? "", userName)
+  const handleUpload = async (url: string, caption?: string, stageId?: string, taskId?: string) => {
+    const photo = await addPhoto(url, caption ?? "", userName, stageId, taskId)
     onAdded(photo)
     onClose()
   }
@@ -113,7 +115,7 @@ function AddPhotoModal({ onClose, onAdded }: {
           <h2 className="photos-modal-title">Agregar foto</h2>
           <button type="button" className="photos-modal-close" onClick={onClose}>✕</button>
         </div>
-        <PhotoUpload onUpload={handleUpload} />
+        <PhotoUpload onUpload={handleUpload} stages={stages} tasks={tasks} />
       </div>
     </div>
   )
@@ -139,14 +141,16 @@ export default function PhotosPage() {
   const perms = loadPermissionsCache()
   const [photos, setPhotos]       = useState<Photo[]>([])
   const [stages, setStages]       = useState<Stage[]>([])
+  const [tasks, setTasks]         = useState<Task[]>([])
   const [loading, setLoading]     = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [lightbox, setLightbox]   = useState<Photo | null>(null)
 
   useEffect(() => {
-    Promise.all([getProjectPhotos(), getStages()]).then(([p, s]) => {
+    Promise.all([getProjectPhotos(), getStages(), getTasks()]).then(([p, s, t]) => {
       setPhotos(p)
       setStages(s)
+      setTasks(t)
       setLoading(false)
     })
   }, [])
@@ -232,7 +236,7 @@ export default function PhotosPage() {
       )}
 
       {showModal && (
-        <AddPhotoModal onClose={() => setShowModal(false)} onAdded={handleAdded} />
+        <AddPhotoModal onClose={() => setShowModal(false)} onAdded={handleAdded} stages={stages} tasks={tasks} />
       )}
 
       {lightbox && (

@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react"
 import { Stage, Task, TaskStatus, UserRole } from "@/types/project"
 import { addTask, getTasksByStage, updateStage } from "@/lib/mock-db"
 import { TaskCard } from "./task-card"
+import { StagePhotosSection } from "./stage-photos-section"
 
 interface StageDetailProps {
   stage: Stage
@@ -236,6 +237,9 @@ export function StageDetail({ stage, tasks: initialTasks, currentUserId, current
           </div>
         ))
       )}
+
+      {/* Álbum de fotos de la etapa */}
+      <StagePhotosSection stageId={stage.id} currentUserId={currentUserId ?? "usuario"} />
 
       {/* Botón / formulario agregar tarea */}
       {showForm ? (
