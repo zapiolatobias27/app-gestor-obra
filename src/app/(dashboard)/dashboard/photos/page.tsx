@@ -1,18 +1,37 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
-import { getProjectPhotos, getStages, addPhoto } from "@/lib/mock-db"
+import React, { useEffect, useRef, useState } from "react"
+import { Trash2 } from "lucide-react"
+import { getProjectPhotos, getStages, addPhoto, deletePhoto } from "@/lib/mock-db"
 import { PhotoUpload } from "@/features/photos/components/photo-upload"
+import { loadPermissionsCache, canEdit } from "@/lib/permissions"
 import { createClient } from "@/lib/supabase/client"
 import type { Photo, Stage } from "@/types/project"
 
-function PhotoAlbum({ title, code, photos, onPhotoClick }: {
+function PhotoAlbum({ title, code, photos, onPhotoClick, onDelete, canDelete }: {
   title: string
   code?: string
   photos: Photo[]
   onPhotoClick: (p: Photo) => void
+  onDelete: (p: Photo) => void
+  canDelete: boolean
 }) {
   const [open, setOpen] = useState(true)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const requestDelete = (e: React.MouseEvent, photo: Photo) => {
+    e.stopPropagation()
+    if (confirmId === photo.id) {
+      if (timerRef.current) clearTimeout(timerRef.current)
+      setConfirmId(null)
+      onDelete(photo)
+    } else {
+      setConfirmId(photo.id)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setConfirmId(null), 3000)
+    }
+  }
 
   return (
     <div className="photo-album">
@@ -28,10 +47,37 @@ function PhotoAlbum({ title, code, photos, onPhotoClick }: {
       {open && (
         <div className="photo-album-grid">
           {photos.map((p) => (
-            <button key={p.id} type="button" className="photo-album-item" onClick={() => onPhotoClick(p)}>
-              <img src={p.url} alt={p.caption ?? "Foto de obra"} className="photo-album-img" />
-              {p.caption && <p className="photo-album-caption">{p.caption}</p>}
-            </button>
+            <div key={p.id} className="relative group photo-album-item">
+              <button
+                type="button"
+                className="w-full h-full"
+                onClick={() => onPhotoClick(p)}
+              >
+                <img src={p.url} alt={p.caption ?? "Foto de obra"} className="photo-album-img" />
+                {p.caption && <p className="photo-album-caption">{p.caption}</p>}
+              </button>
+
+              {canDelete && (
+                confirmId === p.id ? (
+                  <button
+                    type="button"
+                    onClick={(e) => requestDelete(e, p)}
+                    className="absolute top-1 right-1 rounded px-1.5 py-0.5 text-xs bg-red-600 text-white"
+                  >
+                    ¿Borrar?
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => requestDelete(e, p)}
+                    className="absolute top-1 right-1 rounded-full p-1 bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Eliminar foto"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -90,6 +136,7 @@ function Lightbox({ photo, onClose }: { photo: Photo; onClose: () => void }) {
 }
 
 export default function PhotosPage() {
+  const perms = loadPermissionsCache()
   const [photos, setPhotos]       = useState<Photo[]>([])
   const [stages, setStages]       = useState<Stage[]>([])
   const [loading, setLoading]     = useState(true)
@@ -106,6 +153,20 @@ export default function PhotosPage() {
 
   const handleAdded = (photo: Photo) => setPhotos((prev) => [photo, ...prev])
 
+  const handleDelete = async (photo: Photo) => {
+    try {
+      await deletePhoto(photo.id)
+      const path = photo.url.split("/photos/")[1]
+      if (path) {
+        const supabase = createClient()
+        await supabase.storage.from("photos").remove([path])
+      }
+      setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
+    } catch (err) {
+      console.error("Error al eliminar foto:", err)
+    }
+  }
+
   const stageAlbums = stages
     .map((s) => ({ stage: s, photos: photos.filter((p) => p.stageId === s.id) }))
     .filter(({ photos: sp }) => sp.length > 0)
@@ -113,6 +174,8 @@ export default function PhotosPage() {
   const generalPhotos = photos.filter((p) => !p.stageId)
 
   const totalAlbums = stageAlbums.length + (generalPhotos.length > 0 ? 1 : 0)
+
+  const canDeletePhotos = canEdit(perms, "fotos")
 
   return (
     <div className="p-8 space-y-6">
@@ -150,6 +213,8 @@ export default function PhotosPage() {
               title="Sin etapa"
               photos={generalPhotos}
               onPhotoClick={setLightbox}
+              onDelete={handleDelete}
+              canDelete={canDeletePhotos}
             />
           )}
           {stageAlbums.map(({ stage, photos: sp }) => (
@@ -159,6 +224,8 @@ export default function PhotosPage() {
               code={stage.code}
               photos={sp}
               onPhotoClick={setLightbox}
+              onDelete={handleDelete}
+              canDelete={canDeletePhotos}
             />
           ))}
         </div>

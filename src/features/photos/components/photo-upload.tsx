@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/client"
 import { getActiveProjectId } from "@/lib/projects-db"
 
 interface PhotoUploadProps {
-  onUpload?: (photoUrl: string, caption?: string) => void
+  onUpload?: (photoUrl: string, caption?: string) => Promise<void>
 }
 
 export function PhotoUpload({ onUpload }: PhotoUploadProps) {
@@ -44,7 +44,7 @@ export function PhotoUpload({ onUpload }: PhotoUploadProps) {
         .from("photos")
         .getPublicUrl(path)
 
-      onUpload?.(publicUrl, caption || undefined)
+      await onUpload?.(publicUrl, caption || undefined)
       setFile(null)
       setPreview("")
       setCaption("")
