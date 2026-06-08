@@ -15,8 +15,9 @@ import {
   createPurchaseRequest,
   getBudgetMovements,
   getProjectStageSummary,
+  getCalendarEvents,
 } from "@/lib/mock-db"
-import { TaskStatus, UserRole, PurchaseRequest, BudgetMovement } from "@/types/project"
+import { TaskStatus, UserRole, PurchaseRequest, BudgetMovement, CalendarEvent } from "@/types/project"
 import { getActiveProjectId } from "@/lib/projects-db"
 import { parseNum } from "@/lib/parseNum"
 
@@ -346,6 +347,7 @@ export default function DashboardPage() {
   const [resolvedRequests, setResolved]   = useState<import("@/types/project").PurchaseRequest[]>([])
   const [movements, setMovements]         = useState<import("@/types/project").BudgetMovement[]>([])
   const [stageSummary, setStageSummary]   = useState<import("@/lib/mock-db").ProjectStageSummary | null>(null)
+  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([])
 
   const refresh = useCallback(() => setTick((t) => t + 1), [])
 
@@ -386,7 +388,7 @@ export default function DashboardPage() {
         proj.budgetReal = paidTotal + approvedTotal
       }
 
-      const [stgs, tsks, alts, crit, res, movs, summary] = await Promise.all([
+      const [stgs, tsks, alts, crit, res, movs, summary, evts] = await Promise.all([
         getStages(),
         getTasks(),
         getAlerts(),
@@ -394,6 +396,7 @@ export default function DashboardPage() {
         getRecentResolvedRequests(),
         getBudgetMovements(),
         getProjectStageSummary(),
+        getCalendarEvents(),
       ])
       setProject(proj)
       setStages(stgs)
@@ -403,6 +406,10 @@ export default function DashboardPage() {
       setResolved(res)
       setMovements(movs)
       setStageSummary(summary)
+      const today = todayISO()
+      setUpcomingEvents(
+        evts.filter((e) => e.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 5)
+      )
     }
     load()
   }, [tick])
@@ -452,6 +459,21 @@ export default function DashboardPage() {
 
   const currentStage = stages.find((s) => s.status === "in_progress" || s.status === "blocked")
   const hasWarnings  = activeAlerts > 0 || criticalPurchases.length > 0 || blockedTasks > 0
+
+  const EVENT_LABEL: Record<CalendarEvent["type"], string> = {
+    buy:      "Compra",
+    need:     "Necesidad",
+    note:     "Nota",
+    delivery: "Entrega",
+    invoice:  "Factura",
+  }
+  const EVENT_CHIP: Record<CalendarEvent["type"], string> = {
+    buy:      "cal-chip-buy",
+    need:     "cal-chip-need",
+    note:     "cal-chip-note",
+    delivery: "cal-chip-delivery",
+    invoice:  "cal-chip-invoice",
+  }
 
 
 
@@ -655,6 +677,29 @@ export default function DashboardPage() {
             <Link href="/dashboard/logistics" className="link-pill mt-3">Ver Logística →</Link>
           </div>
         )}
+      </CollapsibleSection>
+
+      {/* ── Próximos eventos ────────────────────────────────────────────── */}
+      <CollapsibleSection title="Próximos eventos" storageKey="dash:section:calendario">
+        <div className="card-obra p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="section-title">Esta semana y próximas</h2>
+            <Link href="/dashboard/calendario" className="link-pill">Ver calendario →</Link>
+          </div>
+          {upcomingEvents.length === 0 ? (
+            <p className="text-sm text-stone-400">Sin eventos próximos</p>
+          ) : (
+            <div className="space-y-2">
+              {upcomingEvents.map((e) => (
+                <div key={e.id} className="flex items-center gap-3">
+                  <span className={EVENT_CHIP[e.type]}>{EVENT_LABEL[e.type]}</span>
+                  <span className="text-sm text-stone-700 flex-1 truncate">{e.title}</span>
+                  <span className="text-xs text-stone-400 flex-shrink-0">{fmtDate(e.date)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </CollapsibleSection>
 
       {/* ── Finanzas ────────────────────────────────────────────────────── */}
