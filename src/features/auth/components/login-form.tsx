@@ -51,10 +51,17 @@ export function LoginForm() {
   return (
     <div className="login-split">
       {/* Hero compacto — solo visible en mobile */}
-      <div
-        className="login-mobile-hero"
-        style={{ backgroundImage: `url(${slides[currentSlide]})` }}
-      >
+      <div className="login-mobile-hero">
+        {slides.map((src, i) => (
+          <div
+            key={i}
+            className="login-slide"
+            style={{
+              backgroundImage: `url(${src})`,
+              opacity: i === currentSlide ? 1 : 0,
+            }}
+          />
+        ))}
         <div className="login-slider-overlay" />
         <div className="login-mobile-hero-text">
           <div className="login-icon-wrap">

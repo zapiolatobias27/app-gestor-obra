@@ -341,8 +341,7 @@ body {
       height: 38vh;
       min-height: 220px;
       max-height: 320px;
-      background-size: cover;
-      background-position: center;
+      overflow: hidden;
       flex-shrink: 0;
     }
 
