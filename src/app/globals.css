@@ -606,6 +606,10 @@ body {
     flex: 1;
     overflow: auto;
     min-width: 0;
+    background:
+      radial-gradient(ellipse 55% 40% at 92% 8%,  rgba(196, 98, 28, 0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 50% 45% at 5%  92%, rgba(217, 184, 134, 0.09) 0%, transparent 70%),
+      var(--cream);
   }
   /* ── Notification bell ── */
   .notif-bell-wrap { position: relative; }
