@@ -6,9 +6,12 @@ import {
   getInvoiceDueDateCalendarEvents,
   addCalendarEvent, deleteCalendarEvent, markCalendarEventPurchased,
   createPurchaseRequest, addDeliveryCalendarEvent, getSupplies,
+  deleteAllCalendarEvents,
 } from "@/lib/mock-db"
 import { CalendarEvent } from "@/types/project"
 import { SupplyItem } from "@/types/stock"
+import { getActiveProject } from "@/lib/projects-db"
+import { CalendarImporter } from "@/features/import/components/calendar-importer"
 
 const TYPE_LABEL: Record<CalendarEvent["type"], string> = {
   buy:      "📦 Comprar",
@@ -336,6 +339,7 @@ function AddEventModal({
 
 export default function CalendarioPage() {
   const [userName, setUserName] = useState("")
+  const [projectStartDate, setProjectStartDate] = useState("")
   const today = new Date()
   const [year, setYear]   = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
@@ -343,6 +347,18 @@ export default function CalendarioPage() {
   const [supplies, setSupplies] = useState<SupplyItem[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [addDate, setAddDate] = useState<string | null>(null)
+  const [deletingAll, setDeletingAll] = useState(false)
+
+  const handleDeleteAll = async () => {
+    if (!confirm("¿Eliminar TODOS los eventos del calendario de este proyecto? Esta acción no se puede deshacer.")) return
+    setDeletingAll(true)
+    try {
+      await deleteAllCalendarEvents()
+      await reload()
+    } finally {
+      setDeletingAll(false)
+    }
+  }
 
   const reload = useCallback(async () => {
     const [manual, auto, stockAlerts, invoiceDues, sups] = await Promise.all([
@@ -365,6 +381,8 @@ export default function CalendarioPage() {
         const { data: profile } = await supabase.from("profiles").select("name").eq("id", user.id).single()
         setUserName(profile?.name ?? "")
       }
+      const project = await getActiveProject()
+      setProjectStartDate(project?.startDate ?? "")
       reload()
     }
     init()
@@ -390,12 +408,22 @@ export default function CalendarioPage() {
 
   return (
     <div className="page-wrap">
-      <div>
-        <p className="page-eyebrow">Planificación</p>
-        <h1 className="page-title">Calendario de materiales</h1>
-        <p className="page-subtitle">
-          📦 Comprar · 🏗️ Necesario en obra · 🚚 Entrega · 📝 Nota — hacé click en un día para agregar
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="page-eyebrow">Planificación</p>
+          <h1 className="page-title">Calendario de materiales</h1>
+          <p className="page-subtitle">
+            📦 Comprar · 🏗️ Necesario en obra · 🚚 Entrega · 📝 Nota — hacé click en un día para agregar
+          </p>
+        </div>
+        <button
+          type="button"
+          className="proj-btn-ghost shrink-0 mt-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+          onClick={handleDeleteAll}
+          disabled={deletingAll}
+        >
+          {deletingAll ? "Eliminando…" : "Borrar todo"}
+        </button>
       </div>
 
       {/* Legend */}
@@ -474,6 +502,13 @@ export default function CalendarioPage() {
           onAdded={reload}
         />
       )}
+
+      {/* Importar desde Excel */}
+      <div className="card-obra p-5">
+        <h2 className="section-title">Importar desde Excel</h2>
+        <p className="text-sm text-stone-400 mb-4">Lee la hoja "Calendario Compras" de tu planilla y agrega los eventos de compra.</p>
+        <CalendarImporter projectStartDate={projectStartDate} onImported={reload} />
+      </div>
     </div>
   )
 }

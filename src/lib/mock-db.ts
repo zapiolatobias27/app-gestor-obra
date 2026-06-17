@@ -277,6 +277,11 @@ export async function deleteStage(stageId: string): Promise<void> {
   await supabase.from("stages").delete().eq("id", stageId)
 }
 
+export async function deleteAllStages(): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("stages").delete().eq("project_id", projectId())
+}
+
 // ─── Tasks ────────────────────────────────────────────────────────────────────
 
 export async function getTasks(): Promise<Task[]> {
@@ -495,6 +500,14 @@ export async function updateSupplyPurchaseStatus(id: string, status: SupplyItem[
 export async function deleteSupply(supplyId: string): Promise<void> {
   const supabase = createClient()
   await supabase.from("supply_items").delete().eq("id", supplyId)
+}
+
+export async function deleteAllSupplies(): Promise<void> {
+  const supabase = createClient()
+  const { data: stageRows } = await supabase.from("stages").select("id").eq("project_id", projectId())
+  const ids = (stageRows ?? []).map((r) => r.id as string)
+  if (ids.length === 0) return
+  await supabase.from("supply_items").delete().in("stage_id", ids)
 }
 
 // ─── Alerts ───────────────────────────────────────────────────────────────────
@@ -907,6 +920,11 @@ export async function addCalendarEvent(event: Omit<CalendarEvent, "id" | "create
 export async function deleteCalendarEvent(id: string): Promise<void> {
   const supabase = createClient()
   await supabase.from("calendar_events").delete().eq("id", id)
+}
+
+export async function deleteAllCalendarEvents(): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("calendar_events").delete().eq("project_id", projectId())
 }
 
 export async function markCalendarEventPurchased(eventId: string, purchaseRequestId: string): Promise<void> {

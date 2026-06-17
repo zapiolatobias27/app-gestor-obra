@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useCallback, useEffect, useState } from "react"
-import { getStages, getTasks, deleteStage } from "@/lib/mock-db"
+import { getStages, getTasks, deleteStage, deleteAllStages } from "@/lib/mock-db"
 import { Stage, Task } from "@/types/project"
 import { StagesList } from "@/features/stages/components/stages-list"
 import { EtapasEditor } from "@/features/import/components/etapas-editor"
@@ -44,6 +44,18 @@ export default function StagesPage() {
     setRefreshKey((k) => k + 1)
   }
 
+  const [deletingAll, setDeletingAll] = useState(false)
+  const handleDeleteAll = async () => {
+    if (!confirm("¿Eliminar TODAS las etapas del proyecto? Se borrarán también todas sus tareas e insumos. Esta acción no se puede deshacer.")) return
+    setDeletingAll(true)
+    try {
+      await deleteAllStages()
+      setRefreshKey((k) => k + 1)
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   const handleNewClick = () => {
     setEditingStage(null)
     setShowForm((v) => !v)
@@ -60,13 +72,23 @@ export default function StagesPage() {
             {blocked > 0 && ` · ${blocked} bloqueada${blocked > 1 ? "s" : ""}`}
           </p>
         </div>
-        <button
-          type="button"
-          className={showForm ? "proj-btn-ghost mt-1" : "proj-btn-primary mt-1"}
-          onClick={handleNewClick}
-        >
-          {showForm ? "Cancelar" : "+ Agregar etapa"}
-        </button>
+        <div className="flex gap-2 mt-1">
+          <button
+            type="button"
+            className="proj-btn-ghost text-red-600 hover:text-red-700 hover:bg-red-50"
+            onClick={handleDeleteAll}
+            disabled={deletingAll}
+          >
+            {deletingAll ? "Eliminando…" : "Borrar todo"}
+          </button>
+          <button
+            type="button"
+            className={showForm ? "proj-btn-ghost" : "proj-btn-primary"}
+            onClick={handleNewClick}
+          >
+            {showForm ? "Cancelar" : "+ Agregar etapa"}
+          </button>
+        </div>
       </div>
 
       {/* Formulario nueva etapa */}

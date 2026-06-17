@@ -5,7 +5,7 @@ import {
   getSupplies, getStages, getProviders,
   addSupply, updateSupply, deleteSupply,
   updateSupplyRealQty, updateSupplyCurrentStock,
-  updateSupplyPurchaseStatus,
+  updateSupplyPurchaseStatus, deleteAllSupplies,
 } from "@/lib/mock-db"
 import { getActiveProjectId } from "@/lib/projects-db"
 import { createClient } from "@/lib/supabase/client"
@@ -729,18 +729,40 @@ export default function StockPage() {
     await load()
   }
 
+  const [deletingAll, setDeletingAll] = useState(false)
+  const handleDeleteAll = async () => {
+    if (!confirm("¿Eliminar TODOS los materiales de stock de este proyecto? Esta acción no se puede deshacer.")) return
+    setDeletingAll(true)
+    try {
+      await deleteAllSupplies()
+      await load()
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   const totalComprado = supplies.reduce((s, i) => s + (i.totalPurchased ?? 0) * (i.estimatedUnitCost ?? 0), 0)
   const critical      = supplies.filter((s) => s.purchaseStatus === "critical").length
   const delivered     = supplies.filter((s) => s.purchaseStatus === "delivered").length
 
   return (
     <div className="page-wrap space-y-6">
-      <div>
-        <p className="page-eyebrow">Control de inventario</p>
-        <h1 className="page-title">Planilla de Materiales</h1>
-        <p className="page-subtitle">
-          Comprado · En obra · Consumido · Stock calculado · Estado de compra · WhatsApp al proveedor
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="page-eyebrow">Control de inventario</p>
+          <h1 className="page-title">Planilla de Materiales</h1>
+          <p className="page-subtitle">
+            Comprado · En obra · Consumido · Stock calculado · Estado de compra · WhatsApp al proveedor
+          </p>
+        </div>
+        <button
+          type="button"
+          className="proj-btn-ghost shrink-0 mt-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+          onClick={handleDeleteAll}
+          disabled={deletingAll}
+        >
+          {deletingAll ? "Eliminando…" : "Borrar todo"}
+        </button>
       </div>
 
       {/* KPIs */}
