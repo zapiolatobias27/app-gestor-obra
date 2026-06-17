@@ -5,6 +5,17 @@ App de gestión de obras de construcción. Interfaz en español, formato numéri
 ## Regla crítica
 **NUNCA hacer commit ni push a GitHub sin aprobación explícita del usuario.**
 
+## Módulos
+- **Cash flow**: ingresos y egresos por obra
+- **Calendario**: eventos, reuniones y vencimientos
+- **Compras**: órdenes de compra a proveedores
+- **Facturas**: facturas recibidas y emitidas
+- **Proveedores**: catálogo de proveedores
+- **Stock**: control de inventario de materiales por obra
+- **Fotos por etapa**: galería de avance de obra
+- **Logística**: movimientos de materiales
+- **Documentos**: archivos contractuales y permisos
+
 ## Stack
 - Next.js 14 App Router + TypeScript strict
 - Supabase (PostgreSQL + Auth + Storage)
@@ -145,3 +156,22 @@ FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 ## Nuevo sidebar item
 Agregar en `FULL_ACCESS_NAV` Y en el array del rol supervisor en `app-sidebar.tsx`.
+
+## Comandos
+- `npm run dev` — servidor local en http://localhost:3000
+- `npm run build` — build de producción (corré antes de push para evitar romper Vercel)
+- `npm run lint` — linter (corré antes de cada push)
+- `npm start` — correr build localmente
+
+## Repo y deploy
+- GitHub: github.com/zapiolatobias27/app-gestor-obra
+- Deploy: Vercel (auto-deploy en push a `main`)
+
+## Workflow recomendado
+1. `/office-hours` — para features nuevas, antes de planear
+2. `/plan-design-review` — convertir intención en spec ejecutable
+3. Build siguiendo los patrones de arriba
+4. `/review` — revisión pre-PR
+5. `npm run lint && npm run build` — verificar local
+6. Pedir aprobación al usuario antes de commit/push
+7. `/ship` — para mergear y cerrar
