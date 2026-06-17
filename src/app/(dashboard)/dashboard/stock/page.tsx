@@ -42,8 +42,14 @@ interface FormState {
   stageId: string
   name: string
   unit: string
+  neededQty: string
+  stockCompraAnterior: string
+  toComprar: string
   totalPurchased: string
   estimatedUnitCost: string
+  realUnitCost: string
+  totalCompradoPesos: string
+  diferenciaPesos: string
   currentStock: string
   realQty: string
   orderWeek: string
@@ -55,7 +61,9 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   stageId: "", name: "", unit: "",
-  totalPurchased: "", estimatedUnitCost: "",
+  neededQty: "", stockCompraAnterior: "", toComprar: "",
+  totalPurchased: "", estimatedUnitCost: "", realUnitCost: "",
+  totalCompradoPesos: "", diferenciaPesos: "",
   currentStock: "", realQty: "", orderWeek: "",
   purchaseStatus: undefined, providerId: "",
   photoFile: null, photoPreview: null,
@@ -234,8 +242,14 @@ function EditSupplyModal({ supply, stages, providers, onSaved, onClose }: {
     stageId: supply.stageId,
     name: supply.name,
     unit: supply.unit,
+    neededQty: String(supply.neededQty ?? supply.plannedQty ?? ""),
+    stockCompraAnterior: supply.stockCompraAnterior != null ? String(supply.stockCompraAnterior) : "",
+    toComprar: supply.toComprar != null ? String(supply.toComprar) : "",
     totalPurchased: String(supply.totalPurchased ?? 0),
     estimatedUnitCost: String(supply.estimatedUnitCost ?? ""),
+    realUnitCost: String(supply.realUnitCost ?? ""),
+    totalCompradoPesos: supply.totalCompradoPesos != null ? String(supply.totalCompradoPesos) : "",
+    diferenciaPesos: supply.diferenciaPesos != null ? String(supply.diferenciaPesos) : "",
     currentStock: String(supply.currentStock ?? ""),
     realQty: String(supply.realQty),
     orderWeek: String(supply.orderWeek ?? ""),
@@ -270,16 +284,23 @@ function EditSupplyModal({ supply, stages, providers, onSaved, onClose }: {
           photoUrl = urlData.publicUrl
         }
       }
+      const nq = parseNum(form.neededQty)
       await updateSupply({
         ...supply,
         stageId: form.stageId || supply.stageId,
         name: form.name.trim() || supply.name,
         unit: form.unit.trim() || supply.unit,
-        plannedQty: parseNum(form.totalPurchased) || supply.plannedQty,
+        plannedQty: nq || supply.plannedQty,
+        neededQty: nq || undefined,
+        stockCompraAnterior: form.stockCompraAnterior !== "" ? parseNum(form.stockCompraAnterior) : undefined,
+        toComprar: form.toComprar !== "" ? parseNum(form.toComprar) : undefined,
         realQty: parseNum(form.realQty) || 0,
         currentStock: parseNum(form.currentStock) || undefined,
         totalPurchased: parseNum(form.totalPurchased) || 0,
         estimatedUnitCost: parseNum(form.estimatedUnitCost) || undefined,
+        realUnitCost: parseNum(form.realUnitCost) || undefined,
+        totalCompradoPesos: form.totalCompradoPesos !== "" ? parseNum(form.totalCompradoPesos) : undefined,
+        diferenciaPesos: form.diferenciaPesos !== "" ? parseNum(form.diferenciaPesos) : undefined,
         orderWeek: parseNum(form.orderWeek) || undefined,
         purchaseStatus: form.purchaseStatus,
         providerId: form.providerId || undefined,
@@ -331,21 +352,57 @@ function EditSupplyModal({ supply, stages, providers, onSaved, onClose }: {
               <label className="proj-form-label">Semana pedido</label>
               <input type="text" inputMode="numeric" className="proj-form-input" value={form.orderWeek} onChange={(e) => set("orderWeek", e.target.value)} />
             </div>
-            <div className="proj-form-field">
-              <label className="proj-form-label">Comprado total</label>
-              <input type="text" inputMode="decimal" className="proj-form-input" value={form.totalPurchased} onChange={(e) => set("totalPurchased", e.target.value)} />
+
+            <div className="col-span-2 pt-1">
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">Cantidades</p>
             </div>
             <div className="proj-form-field">
-              <label className="proj-form-label">Precio unitario</label>
-              <input type="text" inputMode="decimal" className="proj-form-input" value={form.estimatedUnitCost} onChange={(e) => set("estimatedUnitCost", e.target.value)} />
+              <label className="proj-form-label">Cantidad necesaria</label>
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.neededQty} onChange={(e) => set("neededQty", e.target.value)} placeholder="0" />
+            </div>
+            <div className="proj-form-field">
+              <label className="proj-form-label">Stock compra anterior</label>
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.stockCompraAnterior} onChange={(e) => set("stockCompraAnterior", e.target.value)} placeholder="0" />
+            </div>
+            <div className="proj-form-field">
+              <label className="proj-form-label">A comprar</label>
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.toComprar} onChange={(e) => set("toComprar", e.target.value)} placeholder="0" />
+            </div>
+            <div className="proj-form-field">
+              <label className="proj-form-label">Comprado (unidades)</label>
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.totalPurchased} onChange={(e) => set("totalPurchased", e.target.value)} placeholder="0" />
             </div>
             <div className="proj-form-field">
               <label className="proj-form-label">En obra</label>
-              <input type="text" inputMode="decimal" className="proj-form-input" value={form.currentStock} onChange={(e) => set("currentStock", e.target.value)} />
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.currentStock} onChange={(e) => set("currentStock", e.target.value)} placeholder="0" />
             </div>
             <div className="proj-form-field">
               <label className="proj-form-label">Consumido</label>
-              <input type="text" inputMode="decimal" className="proj-form-input" value={form.realQty} onChange={(e) => set("realQty", e.target.value)} />
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.realQty} onChange={(e) => set("realQty", e.target.value)} placeholder="0" />
+            </div>
+
+            <div className="col-span-2 pt-1">
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">Precios</p>
+            </div>
+            <div className="proj-form-field">
+              <label className="proj-form-label">Precio estimado (unit.)</label>
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.estimatedUnitCost} onChange={(e) => set("estimatedUnitCost", e.target.value)} placeholder="0" />
+            </div>
+            <div className="proj-form-field">
+              <label className="proj-form-label">Precio real de compra (unit.)</label>
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.realUnitCost} onChange={(e) => set("realUnitCost", e.target.value)} placeholder="0" />
+            </div>
+            <div className="proj-form-field">
+              <label className="proj-form-label">Total comprado ($)</label>
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.totalCompradoPesos} onChange={(e) => set("totalCompradoPesos", e.target.value)} placeholder="0" />
+            </div>
+            <div className="proj-form-field">
+              <label className="proj-form-label">Diferencia est. vs real ($)</label>
+              <input type="text" inputMode="decimal" className="proj-form-input" value={form.diferenciaPesos} onChange={(e) => set("diferenciaPesos", e.target.value)} placeholder="0" />
+            </div>
+
+            <div className="col-span-2 pt-1">
+              <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2">Compra</p>
             </div>
             <div className="proj-form-field">
               <label className="proj-form-label">Estado compra</label>
@@ -435,23 +492,26 @@ function MaterialsTable({ supplies, providers, onEdit, onDelete, onRefresh }: {
             <thead className="stock-thead">
               <tr>
                 <th className="stock-th text-left">Material</th>
-                <th className="stock-th text-left hidden md:table-cell">Proveedor</th>
-                <th className="stock-th text-center hidden lg:table-cell">Sem.</th>
+                <th className="stock-th text-right">Cant. Nec.</th>
+                <th className="stock-th text-right hidden lg:table-cell">Stock Ant.</th>
+                <th className="stock-th text-right hidden lg:table-cell">A Comprar</th>
                 <th className="stock-th text-right">Comprado</th>
-                <th className="stock-th text-right hidden sm:table-cell">P. Unit.</th>
-                <th className="stock-th text-right hidden lg:table-cell">Total Est.</th>
+                <th className="stock-th text-right hidden sm:table-cell">P. Est.</th>
+                <th className="stock-th text-right hidden sm:table-cell">P. Real</th>
+                <th className="stock-th text-right hidden xl:table-cell">Total Comp. ($)</th>
+                <th className="stock-th text-right hidden xl:table-cell">Diferencia ($)</th>
                 <th className="stock-th text-right">En Obra</th>
                 <th className="stock-th text-right">Consumido</th>
                 <th className="stock-th text-right">Stock</th>
                 <th className="stock-th text-center">Estado</th>
+                <th className="stock-th text-left hidden md:table-cell">Proveedor</th>
                 <th className="stock-th" />
               </tr>
             </thead>
             <tbody className="stock-tbody">
               {supplies.map((s) => {
-                const totalEst = (s.totalPurchased ?? 0) * (s.estimatedUnitCost ?? 0)
-                const stock    = (s.totalPurchased ?? 0) - s.realQty
-                const isNeg    = stock < 0
+                const stock   = s.stockFinal ?? ((s.totalPurchased ?? 0) - s.realQty)
+                const isNeg   = stock < 0
                 const provider = s.providerId ? providerMap[s.providerId] : undefined
                 const waPhone  = provider?.phone?.replace(/\D/g, "")
                 const waMsg    = provider
@@ -478,47 +538,48 @@ function MaterialsTable({ supplies, providers, onEdit, onDelete, onRefresh }: {
                       </div>
                     </td>
 
-                    {/* Proveedor */}
-                    <td className="stock-td hidden md:table-cell">
-                      {provider ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-stone-600 text-xs">{provider.name}</span>
-                          {waPhone && (
-                            <a
-                              href={`https://wa.me/${waPhone}?text=${waMsg}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="provider-wa-btn"
-                              title="Pedir por WhatsApp"
-                              style={{ fontSize: "0.65rem", padding: "0.1rem 0.4rem" }}
-                            >
-                              WA
-                            </a>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-stone-300">—</span>
-                      )}
+                    {/* Cantidad necesaria */}
+                    <td className="stock-td text-right tabular-nums text-stone-600">
+                      {s.neededQty ?? s.plannedQty ?? "—"}
                     </td>
 
-                    {/* Semana */}
-                    <td className="stock-td text-center text-stone-500 hidden lg:table-cell">
-                      {s.orderWeek ?? "—"}
+                    {/* Stock compra anterior */}
+                    <td className="stock-td text-right tabular-nums text-stone-500 hidden lg:table-cell">
+                      {s.stockCompraAnterior ?? "—"}
                     </td>
 
-                    {/* Comprado */}
+                    {/* A comprar */}
+                    <td className="stock-td text-right tabular-nums text-stone-500 hidden lg:table-cell">
+                      {s.toComprar ?? "—"}
+                    </td>
+
+                    {/* Comprado (unidades) */}
                     <td className="stock-td text-right tabular-nums font-medium">
                       {s.totalPurchased ?? 0}
                     </td>
 
-                    {/* Precio unit */}
+                    {/* Precio estimado */}
                     <td className="stock-td text-right tabular-nums text-stone-500 hidden sm:table-cell">
                       {s.estimatedUnitCost ? fmt(s.estimatedUnitCost) : "—"}
                     </td>
 
-                    {/* Total est */}
-                    <td className="stock-td text-right tabular-nums hidden lg:table-cell">
-                      {totalEst > 0 ? fmt(totalEst) : "—"}
+                    {/* Precio real de compra */}
+                    <td className="stock-td text-right tabular-nums text-stone-500 hidden sm:table-cell">
+                      {s.realUnitCost ? fmt(s.realUnitCost) : "—"}
+                    </td>
+
+                    {/* Total comprado ($) */}
+                    <td className="stock-td text-right tabular-nums hidden xl:table-cell">
+                      {s.totalCompradoPesos != null ? fmt(s.totalCompradoPesos) : "—"}
+                    </td>
+
+                    {/* Diferencia estimado vs real */}
+                    <td className={`stock-td text-right tabular-nums hidden xl:table-cell ${
+                      s.diferenciaPesos != null
+                        ? s.diferenciaPesos > 0 ? "text-red-600" : s.diferenciaPesos < 0 ? "text-green-600" : "text-stone-400"
+                        : ""
+                    }`}>
+                      {s.diferenciaPesos != null ? fmt(s.diferenciaPesos) : "—"}
                     </td>
 
                     {/* En Obra (editable) */}
@@ -561,7 +622,7 @@ function MaterialsTable({ supplies, providers, onEdit, onDelete, onRefresh }: {
                       )}
                     </td>
 
-                    {/* Stock calculado */}
+                    {/* Stock final */}
                     <td className={`stock-td text-right font-bold tabular-nums ${isNeg ? "stock-dev-high" : stock === 0 ? "text-stone-400" : "stock-dev-ok"}`}>
                       {stock}
                     </td>
@@ -583,6 +644,31 @@ function MaterialsTable({ supplies, providers, onEdit, onDelete, onRefresh }: {
                         <option value="delivered">Entregado</option>
                         <option value="critical">Crítico</option>
                       </select>
+                    </td>
+
+                    {/* Proveedor */}
+                    <td className="stock-td hidden md:table-cell">
+                      {provider ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-stone-600 text-xs">{provider.name}</span>
+                          {waPhone && (
+                            <a
+                              href={`https://wa.me/${waPhone}?text=${waMsg}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="provider-wa-btn"
+                              title="Pedir por WhatsApp"
+                              style={{ fontSize: "0.65rem", padding: "0.1rem 0.4rem" }}
+                            >
+                              WA
+                            </a>
+                          )}
+                        </div>
+                      ) : s.providerName ? (
+                        <span className="text-stone-600 text-xs">{s.providerName}</span>
+                      ) : (
+                        <span className="text-stone-300">—</span>
+                      )}
                     </td>
 
                     {/* Acciones */}

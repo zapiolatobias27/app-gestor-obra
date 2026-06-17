@@ -72,8 +72,8 @@ function mapSupply(r: Record<string, unknown>): SupplyItem {
     taskId: r.task_id as string | undefined,
     name: r.name as string,
     unit: r.unit as string,
-    plannedQty: r.planned_qty as number,
-    realQty: r.real_qty as number,
+    plannedQty: (r.planned_qty as number) ?? 0,
+    realQty: (r.real_qty as number) ?? 0,
     currentStock: r.current_stock as number | undefined,
     totalPurchased: (r.total_purchased as number) ?? 0,
     weeklyConsumption: r.weekly_consumption as number | undefined,
@@ -85,6 +85,13 @@ function mapSupply(r: Record<string, unknown>): SupplyItem {
     realUnitCost: r.real_unit_cost as number | undefined,
     photoUrl: r.photo_url as string | undefined,
     autoDiscountOnComplete: r.auto_discount_on_complete as boolean | undefined,
+    neededQty: r.needed_qty as number | undefined,
+    stockCompraAnterior: r.stock_compra_anterior as number | undefined,
+    toComprar: r.to_comprar as number | undefined,
+    totalCompradoPesos: r.total_comprado_pesos as number | undefined,
+    diferenciaPesos: r.diferencia_pesos as number | undefined,
+    stockFinal: r.stock_final as number | undefined,
+    observaciones: r.observaciones as string | undefined,
   }
 }
 
@@ -432,6 +439,13 @@ export async function addSupply(supply: SupplyItem): Promise<void> {
     real_unit_cost: supply.realUnitCost,
     photo_url: supply.photoUrl ?? null,
     auto_discount_on_complete: supply.autoDiscountOnComplete ?? false,
+    needed_qty: supply.neededQty ?? null,
+    stock_compra_anterior: supply.stockCompraAnterior ?? null,
+    to_comprar: supply.toComprar ?? null,
+    total_comprado_pesos: supply.totalCompradoPesos ?? null,
+    diferencia_pesos: supply.diferenciaPesos ?? null,
+    stock_final: supply.stockFinal ?? null,
+    observaciones: supply.observaciones ?? null,
   })
 }
 
@@ -453,6 +467,13 @@ export async function updateSupply(supply: SupplyItem): Promise<void> {
     real_unit_cost: supply.realUnitCost,
     photo_url: supply.photoUrl ?? null,
     auto_discount_on_complete: supply.autoDiscountOnComplete ?? false,
+    needed_qty: supply.neededQty ?? null,
+    stock_compra_anterior: supply.stockCompraAnterior ?? null,
+    to_comprar: supply.toComprar ?? null,
+    total_comprado_pesos: supply.totalCompradoPesos ?? null,
+    diferencia_pesos: supply.diferenciaPesos ?? null,
+    stock_final: supply.stockFinal ?? null,
+    observaciones: supply.observaciones ?? null,
   }).eq("id", supply.id)
 }
 
@@ -772,6 +793,13 @@ export async function bulkImportData(stages: Stage[], tasks: Task[], supplies: S
         real_unit_cost: s.realUnitCost ?? null,
         photo_url: s.photoUrl ?? null,
         auto_discount_on_complete: s.autoDiscountOnComplete ?? false,
+        needed_qty: s.neededQty ?? null,
+        stock_compra_anterior: s.stockCompraAnterior ?? null,
+        to_comprar: s.toComprar ?? null,
+        total_comprado_pesos: s.totalCompradoPesos ?? null,
+        diferencia_pesos: s.diferenciaPesos ?? null,
+        stock_final: s.stockFinal ?? null,
+        observaciones: s.observaciones ?? null,
       }
     }))
     if (error) throw new Error(`Error al importar insumos: ${error.message}`)

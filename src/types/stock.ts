@@ -4,20 +4,28 @@ export interface SupplyItem {
   taskId?: string
   name: string
   unit: string
-  plannedQty: number
-  realQty: number
-  currentStock?: number      // unidades físicas disponibles hoy en obra (en obra)
-  totalPurchased: number     // comprado total acumulado
-  weeklyConsumption?: number // unidades consumidas por semana (manual o calculado)
-  deliveryDays?: number      // días de plazo del proveedor para este insumo
-  orderWeek?: number         // semana en que se hizo el pedido
+  plannedQty: number         // = neededQty (CANTIDAD NECESARIA del proyecto)
+  realQty: number            // consumido
+  currentStock?: number      // EN OBRA (ingresado al obrador)
+  totalPurchased: number     // COMPRADO (unidades compradas)
+  weeklyConsumption?: number
+  deliveryDays?: number
+  orderWeek?: number
   purchaseStatus?: "pending" | "ordered" | "delivered" | "critical"
   providerId?: string
   providerName?: string
-  estimatedUnitCost?: number
-  realUnitCost?: number
-  photoUrl?: string          // foto comprobante de entrega
+  estimatedUnitCost?: number // PRECIO ESTIMADO unitario
+  realUnitCost?: number      // PRECIO REAL DE COMPRA unitario
+  photoUrl?: string
   autoDiscountOnComplete?: boolean
+  // Campos extendidos del Excel
+  neededQty?: number         // CANTIDAD NECESARIA
+  stockCompraAnterior?: number // EN STOCK - COMPRA ANTERIOR
+  toComprar?: number         // A COMPRAR
+  totalCompradoPesos?: number  // TOTAL COMPRADO ($)
+  diferenciaPesos?: number   // DIFERENCIA (estimado vs comprado)
+  stockFinal?: number        // STOCK (Comprado − Consumido)
+  observaciones?: string
 }
 
 export interface AuditAlert {

@@ -9,29 +9,53 @@ type ColMap = {
   etapa?: number
   name?: number
   unit?: number
-  qty?: number
-  precio?: number
-  enObra?: number
-  consumido?: number
-  estado?: number
-  sem?: number
-  proveedor?: number
+  neededQty?: number       // CANTIDAD NECESARIA
+  stockAnterior?: number   // EN STOCK - COMPRA ANTERIOR
+  toComprar?: number       // A COMPRAR
+  comprado?: number        // COMPRADO (unidades compradas)
+  precioEst?: number       // PRECIO ESTIMADO unitario
+  precioReal?: number      // PRECIO UNIT. DE COMPRA
+  totalComprado?: number   // TOTAL COMPRADO ($)
+  diferencia?: number      // DIFERENCIA (ESTIMADO/COMPRADO)
+  enObra?: number          // EN OBRA
+  consumido?: number       // CONSUMIDO
+  stock?: number           // STOCK (Comprado−Cons.)
+  estado?: number          // ESTADO COMPRA
+  proveedor?: number       // PROVEEDOR
+  sem?: number             // SEM. PEDIDO
+  obs?: number             // OBSERVACIONES
 }
 
 function buildColMap(headers: unknown[]): ColMap | null {
   const idx: ColMap = {}
   headers.forEach((h, i) => {
-    const u = String(h ?? "").toUpperCase().replace(/\r?\n/g, " ")
-    if (u.includes("ETAPA"))                                                       idx.etapa     = i
-    if ((u.includes("MATERIAL") || u.includes("ÍTEM") || u.includes("ITEM")) && idx.name == null) idx.name = i
-    if (u.includes("UNIDAD"))                                                      idx.unit      = i
-    if ((u.includes("COMPRADO TOTAL") || u.includes("CANT NECESARIA")) && idx.qty == null) idx.qty = i
-    if (u.includes("PRECIO") && !u.includes("TOTAL"))                             idx.precio    = i
-    if (u.includes("EN OBRA"))                                                     idx.enObra    = i
-    if (u.includes("CONSUMIDO"))                                                   idx.consumido = i
-    if (u.includes("ESTADO") && idx.estado == null)                                idx.estado    = i
-    if (u.includes("SEM"))                                                         idx.sem       = i
-    if (u.includes("PROVEEDOR"))                                                   idx.proveedor = i
+    const u = String(h ?? "").toUpperCase().replace(/\r?\n/g, " ").trim()
+    if (u.includes("ETAPA"))                                           idx.etapa         = i
+    if ((u.includes("MATERIAL") || u.includes("ÍTEM") || u.includes("ITEM")) && idx.name == null)
+                                                                       idx.name          = i
+    if (u === "UNIDAD" || u.startsWith("UNIDAD "))                    idx.unit          = i
+    if (u.includes("CANTIDAD") && u.includes("NECESARIA"))            idx.neededQty     = i
+    // "EN STOCK" con "ANTERIOR" o "COMPRA" es la columna de stock previo
+    if ((u.includes("EN STOCK") || u.includes("COMPRA ANTERIOR")) && u !== "COMPRADO")
+                                                                       idx.stockAnterior = i
+    if (u === "A COMPRAR")                                             idx.toComprar     = i
+    // "COMPRADO" exacto (no "TOTAL COMPRADO" ni "YA COMPRADOS")
+    if (u === "COMPRADO" && idx.comprado == null)                      idx.comprado      = i
+    if (u.includes("PRECIO ESTIMADO"))                                 idx.precioEst     = i
+    // "PRECIO UNIT" o "PRECIO" + "COMPRA" = precio real de compra
+    if (u.includes("PRECIO") && (u.includes("UNIT") || u.includes("COMPRA($)") || u.includes("COMPRA ($)")))
+                                                                       idx.precioReal    = i
+    if (u.includes("TOTAL") && u.includes("COMPRADO"))                idx.totalComprado = i
+    if (u.includes("DIFERENCIA"))                                      idx.diferencia    = i
+    if (u.includes("EN") && u.includes("OBRA") && !u.includes("STOCK"))
+                                                                       idx.enObra        = i
+    if (u === "CONSUMIDO")                                             idx.consumido     = i
+    if (u.includes("STOCK") && !u.includes("EN STOCK") && !u.includes("ANTERIOR"))
+                                                                       idx.stock         = i
+    if (u.includes("ESTADO") && idx.estado == null)                    idx.estado        = i
+    if (u.includes("PROVEEDOR"))                                       idx.proveedor     = i
+    if (u.startsWith("SEM"))                                           idx.sem           = i
+    if (u.includes("OBSERVACI"))                                       idx.obs           = i
   })
   return idx.name != null && idx.unit != null ? idx : null
 }
@@ -68,7 +92,7 @@ function resolveStageId(etapaCell: string, stages: Stage[]): string {
   return stages[0]?.id ?? "default"
 }
 
-// ─── Core row parser (exported for reuse in excel-parser) ─────────────────────
+// ─── Core row parser (exported for reuse) ─────────────────────────────────────
 
 export function parseStockRows(
   rows: unknown[][],
@@ -91,15 +115,15 @@ export function parseStockRows(
 
     if (joined.includes("MATERIALES YA COMPRADOS")) {
       section = "comprados"
-      colMap = globalColMap  // conservar header global, no borrar
+      colMap = globalColMap
       continue
     }
     if (joined.includes("MATERIALES POR COMPRAR")) {
       section = "por_comprar"
-      colMap = globalColMap  // conservar header global, no borrar
+      colMap = globalColMap
       continue
     }
-    // Header row: puede aparecer antes o dentro de cada sección
+    // Header row
     if (joined.includes("MATERIAL") && joined.includes("UNIDAD")) {
       const built = buildColMap(row)
       if (built) {
@@ -132,16 +156,41 @@ export function parseStockRows(
       warnings.push("No hay etapas en el proyecto. Los materiales se importarán sin etapa asignada.")
     }
 
+    const neededQty          = n("neededQty")
+    const rawStockAnterior   = g("stockAnterior")
+    const stockCompraAnterior = rawStockAnterior !== "" ? n("stockAnterior") : undefined
+    const rawToComprar       = g("toComprar")
+    const toComprar          = rawToComprar !== "" ? n("toComprar") : undefined
+    const comprado           = n("comprado")
+    const precioEst          = n("precioEst") || undefined
+    const precioReal         = n("precioReal") || undefined
+    const rawTotalComprado   = g("totalComprado")
+    const totalCompradoPesos = rawTotalComprado !== "" ? n("totalComprado") : undefined
+    const rawDiferencia      = g("diferencia")
+    const diferenciaPesos    = rawDiferencia !== "" ? n("diferencia") : undefined
+    const enObra             = n("enObra") || undefined
+    const consumido          = n("consumido")
+    const rawStock           = g("stock")
+    const stockFinal         = rawStock !== "" ? n("stock") : undefined
+
     supplies.push({
       id: `sup-xlsx-${++uid}`,
       stageId,
       name,
       unit: g("unit"),
-      plannedQty: n("qty"),
-      totalPurchased: section === "comprados" ? n("qty") : 0,
-      realQty: n("consumido"),
-      currentStock: n("enObra") || undefined,
-      estimatedUnitCost: n("precio") || undefined,
+      plannedQty: neededQty,
+      neededQty: neededQty || undefined,
+      stockCompraAnterior,
+      toComprar,
+      totalPurchased: comprado,
+      realQty: consumido,
+      currentStock: enObra,
+      estimatedUnitCost: precioEst,
+      realUnitCost: precioReal,
+      totalCompradoPesos,
+      diferenciaPesos,
+      stockFinal,
+      observaciones: g("obs") || undefined,
       purchaseStatus: parseStatus(g("estado")),
       orderWeek: parseWeek(g("sem")),
       providerName: g("proveedor") || undefined,
@@ -151,7 +200,7 @@ export function parseStockRows(
   return { supplies, warnings }
 }
 
-// ─── File-based entry point (standalone stock import) ─────────────────────────
+// ─── File-based entry point ────────────────────────────────────────────────────
 
 export async function parseMaterialsXlsx(
   file: File,
@@ -180,7 +229,7 @@ export async function parseMaterialsXlsx(
   if (supplies.length === 0) {
     return {
       supplies: [],
-      errors: [{ row: 0, message: "No se encontraron materiales. Verificá que el archivo tenga las secciones 'MATERIALES YA COMPRADOS' y 'MATERIALES POR COMPRAR'." }],
+      errors: [{ row: 0, message: "No se encontraron materiales. Verificá que el archivo tenga las columnas: MATERIAL, UNIDAD, CANTIDAD NECESARIA, COMPRADO, EN OBRA, CONSUMIDO." }],
       warnings,
     }
   }

@@ -223,20 +223,38 @@ export function PdfStockImporter({ stages, onImported }: PdfStockImporterProps) 
           <thead className="bg-stone-50">
             <tr>
               <th className="text-left px-3 py-2 font-medium text-stone-500">Material</th>
-              <th className="text-left px-3 py-2 font-medium text-stone-500">Unidad</th>
+              <th className="text-right px-3 py-2 font-medium text-stone-500">Nec.</th>
               <th className="text-right px-3 py-2 font-medium text-stone-500">Comprado</th>
-              <th className="text-right px-3 py-2 font-medium text-stone-500 hidden sm:table-cell">Precio unit.</th>
+              <th className="text-right px-3 py-2 font-medium text-stone-500 hidden sm:table-cell">P. Est.</th>
+              <th className="text-right px-3 py-2 font-medium text-stone-500 hidden sm:table-cell">P. Real</th>
+              <th className="text-right px-3 py-2 font-medium text-stone-500 hidden md:table-cell">Total ($)</th>
+              <th className="text-right px-3 py-2 font-medium text-stone-500 hidden md:table-cell">En Obra</th>
+              <th className="text-right px-3 py-2 font-medium text-stone-500 hidden md:table-cell">Stock</th>
               <th className="text-center px-3 py-2 font-medium text-stone-500">Estado</th>
             </tr>
           </thead>
           <tbody>
             {supplies.slice(0, 10).map((s, i) => (
               <tr key={i} className="border-t border-stone-50 hover:bg-stone-50">
-                <td className="px-3 py-1.5 font-medium text-stone-800 max-w-[180px] truncate">{s.name}</td>
-                <td className="px-3 py-1.5 text-stone-500">{s.unit}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{s.totalPurchased || s.plannedQty}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums hidden sm:table-cell">
+                <td className="px-3 py-1.5 font-medium text-stone-800 max-w-[160px] truncate">{s.name}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-stone-500">{s.neededQty ?? s.plannedQty ?? "—"}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums font-medium">{s.totalPurchased ?? 0}</td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-stone-500 hidden sm:table-cell">
                   {s.estimatedUnitCost ? fmt(s.estimatedUnitCost) : "—"}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums text-stone-500 hidden sm:table-cell">
+                  {s.realUnitCost ? fmt(s.realUnitCost) : "—"}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums hidden md:table-cell">
+                  {s.totalCompradoPesos != null ? fmt(s.totalCompradoPesos) : "—"}
+                </td>
+                <td className="px-3 py-1.5 text-right tabular-nums hidden md:table-cell">
+                  {s.currentStock != null ? s.currentStock : "—"}
+                </td>
+                <td className={`px-3 py-1.5 text-right tabular-nums font-bold hidden md:table-cell ${
+                  (s.stockFinal ?? 0) < 0 ? "text-red-600" : "text-green-700"
+                }`}>
+                  {s.stockFinal ?? (s.totalPurchased ?? 0) - s.realQty}
                 </td>
                 <td className="px-3 py-1.5 text-center">
                   {s.purchaseStatus ? (
