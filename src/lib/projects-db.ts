@@ -1,7 +1,7 @@
 "use client"
 
 import { createClient } from "@/lib/supabase/client"
-import type { Project, ProjectMember, JoinRequest, MemberPermissions } from "@/types/project"
+import type { Project, ProjectMember, JoinRequest, MemberPermissions, ProjectInvitation } from "@/types/project"
 import type { UserRole } from "@/types/user"
 
 // El ID del proyecto activo sigue en localStorage (es solo una preferencia de UI)
@@ -221,6 +221,109 @@ export async function updateMemberPermissions(projectId: string, userId: string,
     .update({ allowed_routes: permissions })
     .eq("project_id", projectId)
     .eq("user_id", userId)
+}
+
+// ─── Invitaciones por email ───────────────────────────────────────────────────
+
+function mapInvitation(r: Record<string, unknown>, projectName?: string): ProjectInvitation {
+  return {
+    id: r.id as string,
+    projectId: r.project_id as string,
+    projectName: projectName ?? (r.project_name as string | undefined),
+    invitedEmail: r.invited_email as string,
+    invitedBy: r.invited_by as string,
+    role: r.role as ProjectInvitation["role"],
+    permissions: r.permissions as MemberPermissions | undefined,
+    status: r.status as ProjectInvitation["status"],
+    createdAt: r.created_at as string,
+    respondedAt: r.responded_at as string | undefined,
+  }
+}
+
+export async function inviteCollaboratorByEmail(
+  projectId: string,
+  email: string,
+  role: ProjectInvitation["role"],
+  permissions: MemberPermissions,
+  invitedByEmail: string,
+): Promise<ProjectInvitation> {
+  const supabase = createClient()
+  const id = `inv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  const { data, error } = await supabase
+    .from("project_invitations")
+    .insert({ id, project_id: projectId, invited_email: email.toLowerCase().trim(), invited_by: invitedByEmail, role, permissions })
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+  return mapInvitation(data as Record<string, unknown>)
+}
+
+export async function getProjectInvitations(projectId: string): Promise<ProjectInvitation[]> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from("project_invitations")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+  return (data ?? []).map((r) => mapInvitation(r as Record<string, unknown>))
+}
+
+export async function getPendingInvitationsForUser(email: string): Promise<ProjectInvitation[]> {
+  const supabase = createClient()
+  const { data } = await supabase
+    .from("project_invitations")
+    .select("*, projects(name)")
+    .eq("invited_email", email.toLowerCase().trim())
+    .eq("status", "pending")
+    .order("created_at", { ascending: false })
+  return (data ?? []).map((r) => {
+    const row = r as Record<string, unknown> & { projects?: { name: string } }
+    return mapInvitation(row, row.projects?.name)
+  })
+}
+
+export async function acceptInvitation(
+  invitationId: string,
+  userName: string,
+  userEmail: string,
+  userId: string,
+): Promise<void> {
+  const supabase = createClient()
+  const { data: inv, error: fetchErr } = await supabase
+    .from("project_invitations")
+    .select("*")
+    .eq("id", invitationId)
+    .single()
+  if (fetchErr || !inv) throw new Error("Invitación no encontrada")
+
+  const { error: updErr } = await supabase
+    .from("project_invitations")
+    .update({ status: "accepted", responded_at: new Date().toISOString() })
+    .eq("id", invitationId)
+  if (updErr) throw new Error(updErr.message)
+
+  const { error: memErr } = await supabase.from("project_members").insert({
+    project_id: inv.project_id,
+    user_id: userId,
+    name: userName,
+    email: userEmail,
+    role: inv.role,
+    allowed_routes: inv.permissions ?? null,
+  })
+  if (memErr && !memErr.message.includes("duplicate")) throw new Error(memErr.message)
+}
+
+export async function rejectInvitation(invitationId: string): Promise<void> {
+  const supabase = createClient()
+  await supabase
+    .from("project_invitations")
+    .update({ status: "rejected", responded_at: new Date().toISOString() })
+    .eq("id", invitationId)
+}
+
+export async function cancelInvitation(invitationId: string): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("project_invitations").delete().eq("id", invitationId)
 }
 
 // Tipo exportado para compatibilidad con código existente

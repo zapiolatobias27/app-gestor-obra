@@ -7,8 +7,10 @@ import {
   setActiveProjectId, getActiveProjectId, updateMemberRole, removeMember,
   getProjectMembers, deleteProject, updateMemberPermissions,
   getProjectByInviteCode, joinProjectByCode,
+  inviteCollaboratorByEmail, getProjectInvitations, cancelInvitation,
+  getPendingInvitationsForUser, acceptInvitation, rejectInvitation,
 } from "@/lib/projects-db"
-import { Project, UserRole, ProjectMember, MemberPermissions } from "@/types/project"
+import { Project, UserRole, ProjectMember, MemberPermissions, ProjectInvitation } from "@/types/project"
 import { PERM_TREE, isGroup, defaultPermissions } from "@/lib/permissions"
 import { parseNum } from "@/lib/parseNum"
 
@@ -438,16 +440,304 @@ function DeleteProjectModal({
   )
 }
 
+// ─── Banner de invitaciones pendientes (para el invitado) ────────────────────
+
+function PendingInvitationsBanner({
+  invitations,
+  userName,
+  userEmail,
+  userId,
+  onAction,
+}: {
+  invitations: ProjectInvitation[]
+  userName: string
+  userEmail: string
+  userId: string
+  onAction: () => void
+}) {
+  const [loading, setLoading] = useState<string | null>(null)
+
+  if (invitations.length === 0) return null
+
+  const handle = async (inv: ProjectInvitation, action: "accept" | "reject") => {
+    setLoading(inv.id)
+    try {
+      if (action === "accept") {
+        await acceptInvitation(inv.id, userName, userEmail, userId)
+      } else {
+        await rejectInvitation(inv.id)
+      }
+      onAction()
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {invitations.map((inv) => (
+        <div
+          key={inv.id}
+          className="rounded-xl border border-clay-200 bg-cream p-5 flex flex-col sm:flex-row sm:items-center gap-4"
+          style={{ borderColor: "var(--clay-300)", background: "var(--cream)" }}
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--clay-500)" }}>
+              Invitación pendiente
+            </p>
+            <p className="text-base font-bold text-stone-900">
+              Te invitaron a colaborar en <span style={{ color: "var(--clay-600)" }}>{inv.projectName ?? "un proyecto"}</span>
+            </p>
+            <p className="text-sm text-stone-500 mt-0.5">
+              Rol asignado: <strong>{ROLE_LABEL[inv.role]}</strong> · Invitado por {inv.invitedBy}
+            </p>
+          </div>
+          <div className="flex gap-2 flex-shrink-0">
+            <button
+              type="button"
+              className="proj-btn-primary"
+              disabled={loading === inv.id}
+              onClick={() => handle(inv, "accept")}
+            >
+              {loading === inv.id ? "Procesando…" : "Aceptar"}
+            </button>
+            <button
+              type="button"
+              className="proj-btn-ghost"
+              disabled={loading === inv.id}
+              onClick={() => handle(inv, "reject")}
+            >
+              Rechazar
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── Panel de invitar por email (para el owner) ───────────────────────────────
+
+function InviteByEmailPanel({
+  projectId,
+  ownerEmail,
+  onAction,
+}: {
+  projectId: string
+  ownerEmail: string
+  onAction: () => void
+}) {
+  const [email, setEmail]       = useState("")
+  const [role, setRole]         = useState<UserRole>("supervisor")
+  const [perms, setPerms]       = useState<MemberPermissions>(() => defaultPermissions("supervisor"))
+  const [showPerms, setShowPerms] = useState(false)
+  const [invitations, setInvitations] = useState<ProjectInvitation[]>([])
+  const [saving, setSaving]     = useState(false)
+  const [error, setError]       = useState("")
+  const [success, setSuccess]   = useState("")
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const loadInvitations = async () => {
+    const list = await getProjectInvitations(projectId)
+    setInvitations(list)
+  }
+
+  React.useEffect(() => { loadInvitations() }, [projectId])
+
+  const handleRoleChange = (r: UserRole) => {
+    setRole(r)
+    setPerms(defaultPermissions(r))
+  }
+
+  const setView = (key: string, val: boolean) =>
+    setPerms((prev) => ({ ...prev, [key]: { view: val, edit: val ? (prev[key]?.edit ?? true) : false } }))
+  const setEdit = (key: string, val: boolean) =>
+    setPerms((prev) => ({ ...prev, [key]: { view: prev[key]?.view ?? true, edit: val } }))
+  const toggleGroup = (label: string) =>
+    setCollapsed((prev) => ({ ...prev, [label]: !prev[label] }))
+
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email.trim() || !email.includes("@")) { setError("Ingresá un email válido."); return }
+    setSaving(true)
+    setError("")
+    setSuccess("")
+    try {
+      await inviteCollaboratorByEmail(projectId, email.trim(), role, perms, ownerEmail)
+      setSuccess(`Invitación enviada a ${email.trim()}. Aparecerá cuando inicie sesión.`)
+      setEmail("")
+      setPerms(defaultPermissions(role))
+      await loadInvitations()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al enviar la invitación")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancel = async (id: string) => {
+    if (!confirm("¿Cancelar esta invitación?")) return
+    await cancelInvitation(id)
+    await loadInvitations()
+    onAction()
+  }
+
+  const STATUS_LABEL_INV: Record<ProjectInvitation["status"], string> = {
+    pending:  "Pendiente",
+    accepted: "Aceptada",
+    rejected: "Rechazada",
+  }
+  const STATUS_CLASS: Record<ProjectInvitation["status"], string> = {
+    pending:  "badge-pending",
+    accepted: "badge-done",
+    rejected: "badge-blocked",
+  }
+
+  return (
+    <div className="proj-invite-box space-y-4">
+      <p className="proj-invite-label">Invitar colaborador por email</p>
+      <p className="text-xs text-stone-500">
+        Configurá los permisos antes de que ingresen. La invitación aparecerá cuando inicien sesión.
+      </p>
+
+      <form onSubmit={handleInvite} className="space-y-3">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            type="email"
+            className="proj-form-input flex-1"
+            placeholder="Email del colaborador"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="off"
+          />
+          <select
+            className="proj-form-input sm:w-44"
+            value={role}
+            onChange={(e) => handleRoleChange(e.target.value as UserRole)}
+          >
+            <option value="architect">Arquitecto</option>
+            <option value="supervisor">Encargado de Obra</option>
+          </select>
+        </div>
+
+        <button
+          type="button"
+          className="proj-btn-ghost text-xs"
+          onClick={() => setShowPerms((v) => !v)}
+        >
+          {showPerms ? "Ocultar permisos" : "Configurar permisos"}
+        </button>
+
+        {showPerms && (
+          <div className="border border-stone-100 rounded-xl p-3 space-y-0.5 bg-white">
+            <div className="flex items-center gap-2 px-3 pb-2">
+              <span className="flex-1 text-xs font-semibold text-stone-400 uppercase tracking-wide">Sección</span>
+              <span className="w-10 text-center text-xs font-semibold text-stone-400 uppercase tracking-wide">Ver</span>
+              <span className="w-14 text-center text-xs font-semibold text-stone-400 uppercase tracking-wide">Editar</span>
+            </div>
+            {PERM_TREE.map((node) => {
+              if (isGroup(node)) {
+                const open = !collapsed[node.label]
+                return (
+                  <div key={node.label}>
+                    <button type="button" onClick={() => toggleGroup(node.label)}
+                      className="w-full flex items-center gap-2 px-3 pt-2 pb-1 hover:bg-stone-50 rounded-lg transition-colors">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"
+                        className={`shrink-0 text-stone-400 transition-transform duration-150 ${open ? "rotate-90" : ""}`}>
+                        <path d="M4 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide">{node.label}</span>
+                    </button>
+                    {open && node.subsections.map((sub) => (
+                      <div key={sub.key} className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-stone-50 pl-8">
+                        <span className="flex-1 text-sm text-stone-700">{sub.label}</span>
+                        <div className="w-10 flex justify-center">
+                          <input type="checkbox" checked={perms[sub.key]?.view !== false}
+                            onChange={(e) => setView(sub.key, e.target.checked)}
+                            className="w-4 h-4 accent-stone-700 rounded cursor-pointer" />
+                        </div>
+                        <div className="w-14 flex justify-center">
+                          {sub.hasEdit && (
+                            <input type="checkbox"
+                              checked={perms[sub.key]?.view !== false && perms[sub.key]?.edit !== false}
+                              disabled={perms[sub.key]?.view === false}
+                              onChange={(e) => setEdit(sub.key, e.target.checked)}
+                              className="w-4 h-4 accent-stone-700 rounded cursor-pointer disabled:opacity-30" />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
+              return (
+                <div key={node.key} className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-stone-50">
+                  <span className="flex-1 text-sm text-stone-700">{node.label}</span>
+                  <div className="w-10 flex justify-center">
+                    <input type="checkbox" checked={perms[node.key]?.view !== false}
+                      onChange={(e) => setView(node.key, e.target.checked)}
+                      className="w-4 h-4 accent-stone-700 rounded cursor-pointer" />
+                  </div>
+                  <div className="w-14 flex justify-center">
+                    {node.hasEdit && (
+                      <input type="checkbox"
+                        checked={perms[node.key]?.view !== false && perms[node.key]?.edit !== false}
+                        disabled={perms[node.key]?.view === false}
+                        onChange={(e) => setEdit(node.key, e.target.checked)}
+                        className="w-4 h-4 accent-stone-700 rounded cursor-pointer disabled:opacity-30" />
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {error   && <p className="text-sm text-red-600">{error}</p>}
+        {success && <p className="text-sm text-green-700">{success}</p>}
+
+        <button type="submit" className="proj-btn-primary" disabled={saving}>
+          {saving ? "Enviando…" : "Agregar colaborador"}
+        </button>
+      </form>
+
+      {/* Lista de invitaciones del proyecto */}
+      {invitations.length > 0 && (
+        <div className="space-y-2 pt-2 border-t border-stone-100">
+          <p className="text-xs font-semibold text-stone-400 uppercase tracking-wide">Invitaciones enviadas</p>
+          {invitations.map((inv) => (
+            <div key={inv.id} className="flex items-center gap-3 py-2 px-3 bg-stone-50 rounded-lg">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-stone-800 truncate">{inv.invitedEmail}</p>
+                <p className="text-xs text-stone-500">{ROLE_LABEL[inv.role]}</p>
+              </div>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${STATUS_CLASS[inv.status]}`}>
+                {STATUS_LABEL_INV[inv.status]}
+              </span>
+              {inv.status === "pending" && (
+                <button type="button" className="proj-btn-danger-sm text-xs" onClick={() => handleCancel(inv.id)}>
+                  Cancelar
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Project card ─────────────────────────────────────────────────────────────
 
 type ProjectData = { project: Project; members: ProjectMember[] }
 
 function ProjectCard({
-  data, isActive, currentUserId, onSwitch, onAction,
+  data, isActive, currentUserId, currentUserEmail, onSwitch, onAction,
 }: {
   data: ProjectData
   isActive: boolean
   currentUserId: string
+  currentUserEmail: string
   onSwitch: () => void
   onAction: () => void
 }) {
@@ -540,6 +830,13 @@ function ProjectCard({
           {isOwner && project.inviteCode && (
             <InviteSection code={project.inviteCode} />
           )}
+          {isOwner && (
+            <InviteByEmailPanel
+              projectId={project.id}
+              ownerEmail={currentUserEmail}
+              onAction={onAction}
+            />
+          )}
 
           {/* Miembros */}
           {members.length > 0 && (
@@ -627,6 +924,7 @@ export default function ProjectsPage() {
   const [currentUserEmail, setCurrentUserEmail] = useState("")
   const [showNewForm, setShowNewForm]           = useState(false)
   const [showColaborar, setShowColaborar]       = useState(false)
+  const [pendingInvitations, setPendingInvitations] = useState<ProjectInvitation[]>([])
 
   const reload = useCallback(async () => {
     const projects = await getAllProjects()
@@ -650,7 +948,8 @@ export default function ProjectsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
         setCurrentUserId(user.id)
-        setCurrentUserEmail(user.email ?? "")
+        const email = user.email ?? ""
+        setCurrentUserEmail(email)
         const { data: profile } = await supabase
           .from("profiles")
           .select("name")
@@ -658,6 +957,10 @@ export default function ProjectsPage() {
           .single()
         if (profile) {
           setCurrentUserName((profile.name as string) ?? "")
+        }
+        if (email) {
+          const invs = await getPendingInvitationsForUser(email)
+          setPendingInvitations(invs)
         }
       }
     }
@@ -718,6 +1021,21 @@ export default function ProjectsPage() {
         <ColaborarForm onDone={reload} />
       )}
 
+      {/* Banner de invitaciones pendientes */}
+      {pendingInvitations.length > 0 && (
+        <PendingInvitationsBanner
+          invitations={pendingInvitations}
+          userName={currentUserName}
+          userEmail={currentUserEmail}
+          userId={currentUserId}
+          onAction={async () => {
+            const invs = await getPendingInvitationsForUser(currentUserEmail)
+            setPendingInvitations(invs)
+            reload()
+          }}
+        />
+      )}
+
       {/* Lista de proyectos */}
       <div className="proj-list">
         {projectsData.map((data) => (
@@ -726,6 +1044,7 @@ export default function ProjectsPage() {
             data={data}
             isActive={data.project.id === activeId}
             currentUserId={currentUserId}
+            currentUserEmail={currentUserEmail}
             onSwitch={() => handleSwitch(data.project.id)}
             onAction={reload}
           />

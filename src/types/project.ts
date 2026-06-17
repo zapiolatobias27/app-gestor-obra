@@ -34,6 +34,19 @@ export interface InviteCode {
   createdBy: string
 }
 
+export interface ProjectInvitation {
+  id: string
+  projectId: string
+  projectName?: string
+  invitedEmail: string
+  invitedBy: string
+  role: UserRole
+  permissions?: MemberPermissions
+  status: "pending" | "accepted" | "rejected"
+  createdAt: string
+  respondedAt?: string
+}
+
 export interface DailyBudgetEntry {
   date: string   // ISO date "YYYY-MM-DD"
   amount: number // disponible en caja ese día
