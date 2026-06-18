@@ -456,11 +456,13 @@ function PendingInvitationsBanner({
   onAction: () => void
 }) {
   const [loading, setLoading] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   if (invitations.length === 0) return null
 
   const handle = async (inv: ProjectInvitation, action: "accept" | "reject") => {
     setLoading(inv.id)
+    setError(null)
     try {
       if (action === "accept") {
         await acceptInvitation(inv.id, userName, userEmail, userId)
@@ -468,6 +470,8 @@ function PendingInvitationsBanner({
         await rejectInvitation(inv.id)
       }
       onAction()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error al procesar la invitación. Intentá de nuevo.")
     } finally {
       setLoading(null)
     }
@@ -475,6 +479,7 @@ function PendingInvitationsBanner({
 
   return (
     <div className="space-y-3">
+      {error && <p className="text-sm text-red-600 px-1">{error}</p>}
       {invitations.map((inv) => (
         <div
           key={inv.id}
@@ -745,6 +750,22 @@ function ProjectCard({
   const isOwner = members.some((m) => m.userId === currentUserId && m.role === "owner")
   const [expanded, setExpanded] = useState(isActive)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+  const [leaveError, setLeaveError] = useState("")
+
+  const handleLeave = async () => {
+    if (!confirm(`¿Abandonar el proyecto "${project.name}"? Vas a perder acceso a toda su información.`)) return
+    setLeaving(true)
+    setLeaveError("")
+    try {
+      await removeMember(project.id, currentUserId)
+      if (isActive) setActiveProjectId("")
+      onAction()
+    } catch (err) {
+      setLeaveError(err instanceof Error ? err.message : "Error al abandonar el proyecto.")
+      setLeaving(false)
+    }
+  }
 
   return (
     <div className={`proj-card ${isActive ? "proj-card-active" : ""} ${project.status === "completed" ? "proj-card-done" : ""}`}>
@@ -808,7 +829,13 @@ function ProjectCard({
               Eliminar proyecto
             </button>
           )}
+          {!isOwner && (
+            <button type="button" className="proj-btn-danger-sm" onClick={handleLeave} disabled={leaving}>
+              {leaving ? "Abandonando…" : "Abandonar proyecto"}
+            </button>
+          )}
         </div>
+        {leaveError && <p className="text-sm text-red-600 mt-2">{leaveError}</p>}
       </div>
 
       {showDeleteModal && (
