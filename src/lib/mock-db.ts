@@ -166,6 +166,7 @@ function mapCalendarEvent(r: Record<string, unknown>): CalendarEvent {
     purchaseId: r.purchase_id as string | undefined,
     supplyId: r.supply_id as string | undefined,
     deliveryDays: r.delivery_days as number | undefined,
+    providerId: r.provider_id as string | undefined,
     createdBy: r.created_by as string,
     createdAt: r.created_at as string,
   }
@@ -495,6 +496,11 @@ export async function updateSupplyCurrentStock(supplyId: string, currentStock: n
 export async function updateSupplyPurchaseStatus(id: string, status: SupplyItem["purchaseStatus"]): Promise<void> {
   const supabase = createClient()
   await supabase.from("supply_items").update({ purchase_status: status ?? null }).eq("id", id)
+}
+
+export async function updateSupplyProvider(supplyId: string, providerId: string | null): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("supply_items").update({ provider_id: providerId }).eq("id", supplyId)
 }
 
 export async function deleteSupply(supplyId: string): Promise<void> {
@@ -874,12 +880,12 @@ export async function getPurchaseCalendarEvents(): Promise<CalendarEvent[]> {
 
     if (buyWeekPast && notOrdered) {
       // Semana de compra vencida sin pedir → chip de vencido hoy
-      events.push({ id: `overdue-${p.id}`, date: todayStr, title: p.material, type: "buy", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+      events.push({ id: `overdue-${p.id}`, date: todayStr, title: p.material, type: "buy", material: p.material, amount: p.estimatedCost, purchaseId: p.id, providerId: p.supplierId, createdBy: "sistema", createdAt: project.startDate })
     } else if (!buyWeekPast) {
       // Semana de compra actual o futura → 7 chips de compra
       for (let i = 0; i < 7; i++) {
         const d = new Date(buyBase); d.setDate(buyBase.getDate() + i)
-        events.push({ id: `auto-buy-${p.id}-d${i}`, date: d.toISOString().slice(0, 10), title: p.material, type: "buy", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+        events.push({ id: `auto-buy-${p.id}-d${i}`, date: d.toISOString().slice(0, 10), title: p.material, type: "buy", material: p.material, amount: p.estimatedCost, purchaseId: p.id, providerId: p.supplierId, createdBy: "sistema", createdAt: project.startDate })
       }
     }
 
@@ -887,7 +893,7 @@ export async function getPurchaseCalendarEvents(): Promise<CalendarEvent[]> {
     if (!(buyWeekPast && notOrdered)) {
       for (let i = 0; i < 7; i++) {
         const d = new Date(needBase); d.setDate(needBase.getDate() + i)
-        events.push({ id: `auto-need-${p.id}-d${i}`, date: d.toISOString().slice(0, 10), title: p.material, type: "need", material: p.material, amount: p.estimatedCost, purchaseId: p.id, createdBy: "sistema", createdAt: project.startDate })
+        events.push({ id: `auto-need-${p.id}-d${i}`, date: d.toISOString().slice(0, 10), title: p.material, type: "need", material: p.material, amount: p.estimatedCost, purchaseId: p.id, providerId: p.supplierId, createdBy: "sistema", createdAt: project.startDate })
       }
     }
   }
@@ -913,6 +919,7 @@ export async function addCalendarEvent(event: Omit<CalendarEvent, "id" | "create
     purchase_id: event.purchaseId,
     supply_id: event.supplyId,
     delivery_days: event.deliveryDays,
+    provider_id: event.providerId,
     created_by: event.createdBy,
   })
 }
@@ -925,6 +932,33 @@ export async function deleteCalendarEvent(id: string): Promise<void> {
 export async function deleteAllCalendarEvents(): Promise<void> {
   const supabase = createClient()
   await supabase.from("calendar_events").delete().eq("project_id", projectId())
+}
+
+// ─── Vínculos manuales evento ↔ material (override persistente) ────────────────
+
+export async function getCalendarEventLinks(): Promise<Record<string, string>> {
+  const supabase = createClient()
+  const pid = projectId()
+  if (!pid) return {}
+  const { data } = await supabase.from("calendar_event_links").select("link_key, supply_id").eq("project_id", pid)
+  const map: Record<string, string> = {}
+  for (const r of data ?? []) {
+    map[r.link_key as string] = r.supply_id as string
+  }
+  return map
+}
+
+export async function setCalendarEventLink(linkKey: string, supplyId: string): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("calendar_event_links").upsert(
+    { project_id: projectId(), link_key: linkKey, supply_id: supplyId },
+    { onConflict: "project_id,link_key" },
+  )
+}
+
+export async function clearCalendarEventLink(linkKey: string): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("calendar_event_links").delete().eq("project_id", projectId()).eq("link_key", linkKey)
 }
 
 export async function markCalendarEventPurchased(eventId: string, purchaseRequestId: string): Promise<void> {
@@ -958,7 +992,7 @@ export async function getStockAlertCalendarEvents(): Promise<CalendarEvent[]> {
     const alertDateStr = alertDate.toISOString().slice(0, 10)
     const alreadyExists = existingEvents.some((e) => e.supplyId === supply.id && e.type === "buy")
     if (!alreadyExists) {
-      events.push({ id: `stock-alert-${supply.id}`, date: alertDateStr, title: supply.name, type: "buy", material: supply.name, supplyId: supply.id, deliveryDays: supply.deliveryDays ?? 7, createdBy: "sistema", createdAt: new Date().toISOString() })
+      events.push({ id: `stock-alert-${supply.id}`, date: alertDateStr, title: supply.name, type: "buy", material: supply.name, supplyId: supply.id, deliveryDays: supply.deliveryDays ?? 7, providerId: supply.providerId, createdBy: "sistema", createdAt: new Date().toISOString() })
     }
   }
   return events

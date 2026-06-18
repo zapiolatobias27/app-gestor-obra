@@ -187,6 +187,7 @@ export interface CalendarEvent {
   supplyId?: string          // si viene de alerta de stock bajo
   deliveryDays?: number      // días de plazo del proveedor
   invoiceId?: string         // si viene de vencimiento de factura
+  providerId?: string        // proveedor asociado al evento
   createdBy: string
   createdAt: string
 }

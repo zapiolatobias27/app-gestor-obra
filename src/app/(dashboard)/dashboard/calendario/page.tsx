@@ -6,12 +6,14 @@ import {
   getInvoiceDueDateCalendarEvents,
   addCalendarEvent, deleteCalendarEvent, markCalendarEventPurchased,
   createPurchaseRequest, addDeliveryCalendarEvent, getSupplies,
-  deleteAllCalendarEvents,
+  deleteAllCalendarEvents, getProviders,
+  getCalendarEventLinks, setCalendarEventLink, clearCalendarEventLink,
 } from "@/lib/mock-db"
-import { CalendarEvent } from "@/types/project"
+import { CalendarEvent, Provider } from "@/types/project"
 import { SupplyItem } from "@/types/stock"
 import { getActiveProject } from "@/lib/projects-db"
 import { CalendarImporter } from "@/features/import/components/calendar-importer"
+import { MessageCircle, Phone } from "lucide-react"
 
 const TYPE_LABEL: Record<CalendarEvent["type"], string> = {
   buy:      "📦 Comprar",
@@ -45,6 +47,107 @@ function getMonthGrid(year: number, month: number): Date[] {
   return cells
 }
 
+function buildWhatsAppUrl(phone: string, message?: string): string {
+  // Limpia el número: saca espacios, guiones, paréntesis, el 0 inicial y el 15 de celular argentino
+  const digits = phone.replace(/\D/g, "")
+  let clean = digits
+  if (clean.startsWith("0")) clean = clean.slice(1)
+  // Agregar código de país Argentina 54
+  const international = clean.startsWith("54") ? clean : `54${clean}`
+  const text = message ? encodeURIComponent(message) : ""
+  return `https://wa.me/${international}${text ? `?text=${text}` : ""}`
+}
+
+// ─── Resolución evento → material → proveedor ─────────────────────────────────
+
+// Clave estable para guardar el vínculo manual. Los chips de compra autogenerados
+// comparten purchaseId, así que el override se guarda por entidad subyacente.
+function eventLinkKey(ev: CalendarEvent): string {
+  if (ev.purchaseId) return `purchase:${ev.purchaseId}`
+  return `event:${ev.id}`
+}
+
+// Devuelve el SupplyItem asociado al evento siguiendo la cadena de prioridad:
+// 1) override manual  2) supplyId directo  3) match por nombre  4) null
+function resolveEventSupply(
+  ev: CalendarEvent,
+  supplies: SupplyItem[],
+  links: Record<string, string>,
+): SupplyItem | null {
+  const overrideId = links[eventLinkKey(ev)]
+  if (overrideId) {
+    const s = supplies.find((x) => x.id === overrideId)
+    if (s) return s
+  }
+  if (ev.supplyId) {
+    const s = supplies.find((x) => x.id === ev.supplyId)
+    if (s) return s
+  }
+  const target = (ev.material ?? ev.title ?? "").toLowerCase().trim()
+  if (!target) return null
+  // Exacto
+  let m = supplies.find((s) => s.name.toLowerCase().trim() === target)
+  if (m) return m
+  // Substring: el nombre del material está contenido en el título del evento
+  m = supplies.find((s) => {
+    const name = s.name.toLowerCase().trim()
+    return name.length > 2 && (target.startsWith(name) || target.includes(name))
+  })
+  return m ?? null
+}
+
+function buildWaMessage(provider: Provider, supply: SupplyItem | null, fallbackMaterial?: string): string {
+  const who = provider.contactName ?? provider.name
+  if (supply) {
+    const qty = supply.toComprar ?? supply.plannedQty ?? supply.totalPurchased
+    const qtyTxt = qty && qty > 0 ? `${qty} ${supply.unit} de ` : ""
+    return `Hola ${who}, necesito ${qtyTxt}${supply.name}.`
+  }
+  const mat = fallbackMaterial ? ` de ${fallbackMaterial}` : ""
+  return `Hola ${who}, te contacto por el suministro${mat}.`
+}
+
+// ─── Provider card (dentro del modal) ────────────────────────────────────────
+
+function ProviderCard({ provider, message }: { provider: Provider; message: string }) {
+  return (
+    <div className="cal-provider-card">
+      <p className="cal-provider-name">{provider.name}</p>
+      {provider.contactName && (
+        <p className="cal-provider-meta">Contacto: {provider.contactName}</p>
+      )}
+      {provider.supplies && (
+        <p className="cal-provider-meta">Provee: {provider.supplies}</p>
+      )}
+      <div className="cal-provider-actions">
+        {provider.phone && (
+          <>
+            <a
+              href={buildWhatsAppUrl(provider.phone, message)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="cal-provider-btn cal-provider-btn-wpp"
+            >
+              <MessageCircle size={15} />
+              WhatsApp
+            </a>
+            <a
+              href={`tel:${provider.phone}`}
+              className="cal-provider-btn cal-provider-btn-phone"
+            >
+              <Phone size={15} />
+              Llamar
+            </a>
+          </>
+        )}
+        {!provider.phone && (
+          <p className="cal-provider-no-phone">Sin teléfono registrado</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Event chip ───────────────────────────────────────────────────────────────
 
 function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) {
@@ -75,24 +178,33 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
 // ─── Event detail modal ───────────────────────────────────────────────────────
 
 function EventModal({
-  ev, userName, supplies, onClose, onDeleted, onPurchased,
+  ev, userName, supplies, providers, links, onClose, onDeleted, onPurchased, onLinkChanged,
 }: {
   ev: CalendarEvent
   userName: string
   supplies: SupplyItem[]
+  providers: Provider[]
+  links: Record<string, string>
   onClose: () => void
   onDeleted: () => void
   onPurchased: () => void
+  onLinkChanged: () => void
 }) {
   const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-")
   const isStockAlert = ev.id.startsWith("stock-alert-")
   const isDelivery = ev.type === "delivery"
   const isInvoice = ev.type === "invoice"
+  const canLink = ev.type === "buy" || ev.type === "need"
   const [desc, setDesc]     = useState(ev.title)
   const [amount, setAmount] = useState(ev.amount?.toString() ?? "")
   const [sending, setSending] = useState(false)
+  const [error, setError]   = useState<string | null>(null)
 
-  const supply = ev.supplyId ? supplies.find((s) => s.id === ev.supplyId) : null
+  // Cadena evento → material → proveedor
+  const supply = resolveEventSupply(ev, supplies, links)
+  const resolvedProviderId = supply?.providerId ?? ev.providerId
+  const provider = resolvedProviderId ? providers.find((p) => p.id === resolvedProviderId) : null
+  const waMessage = provider ? buildWaMessage(provider, supply, ev.material ?? ev.title) : ""
 
   // Calcular días restantes de stock para mostrar en el modal
   let daysLeft: number | null = null
@@ -105,18 +217,57 @@ function EventModal({
     }
   }
 
-  const handleCreatePurchase = () => {
-    setSending(true)
-    const amt = parseFloat(amount.replace(/\./g, "").replace(",", ".")) || 0
-    createPurchaseRequest(desc || ev.title, amt, userName)
-    if (!isAuto) markCalendarEventPurchased(ev.id, `pr-${Date.now()}`)
-    // Si es una alerta de stock, crear evento de entrega
-    if (isStockAlert && ev.supplyId) {
-      const days = ev.deliveryDays ?? 7
-      addDeliveryCalendarEvent(ev.supplyId, ev.date, days)
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    window.addEventListener("keydown", fn)
+    return () => window.removeEventListener("keydown", fn)
+  }, [onClose])
+
+  const handleLinkChange = async (supplyId: string) => {
+    setError(null)
+    try {
+      if (supplyId) {
+        await setCalendarEventLink(eventLinkKey(ev), supplyId)
+      } else {
+        await clearCalendarEventLink(eventLinkKey(ev))
+      }
+      onLinkChanged()
+    } catch (err) {
+      console.error(err)
+      setError("No se pudo vincular el material. Intentá de nuevo.")
     }
-    onPurchased()
-    onClose()
+  }
+
+  const handleBuy = async () => {
+    setError(null)
+    setSending(true)
+    try {
+      const amt = parseFloat(amount.replace(/\./g, "").replace(",", ".")) || 0
+      if (amt <= 0 && !provider) {
+        setError("Ingresá un monto o vinculá un material con proveedor.")
+        return
+      }
+      // Crear pedido sólo si hay monto válido
+      if (amt > 0) {
+        await createPurchaseRequest(desc || ev.title, amt, userName)
+        if (!isAuto) await markCalendarEventPurchased(ev.id, `pr-${Date.now()}`)
+        // Si es una alerta de stock, agendar la entrega
+        if (isStockAlert && ev.supplyId) {
+          await addDeliveryCalendarEvent(ev.supplyId, ev.date, ev.deliveryDays ?? 7)
+        }
+        onPurchased()
+      }
+      // Abrir WhatsApp si hay proveedor con teléfono
+      if (provider?.phone) {
+        window.open(buildWhatsAppUrl(provider.phone, waMessage), "_blank", "noopener,noreferrer")
+      }
+      if (amt > 0) onClose()
+    } catch (err) {
+      console.error(err)
+      setError("No se pudo crear el pedido. Intentá de nuevo.")
+    } finally {
+      setSending(false)
+    }
   }
 
   const handleDelete = () => {
@@ -142,6 +293,46 @@ function EventModal({
 
         {ev.material && (
           <p className="cal-modal-meta">Material: <strong>{ev.material}</strong></p>
+        )}
+
+        {/* Proveedor asociado */}
+        {provider && (
+          <div className="cal-provider-section">
+            <p className="cal-provider-section-label">Proveedor</p>
+            <ProviderCard provider={provider} message={waMessage} />
+          </div>
+        )}
+
+        {/* Nota: material no está en el stock */}
+        {canLink && !supply && (
+          <p className="cal-stock-note">
+            Este material no figura en el stock. Vinculalo abajo o cargalo en la sección Stock.
+          </p>
+        )}
+
+        {/* Selector de vínculo manual con un material del stock */}
+        {canLink && supplies.length > 0 && (
+          <div className="proj-form-field">
+            <label className="proj-form-label" htmlFor="cal-link-supply">
+              Material del stock vinculado
+            </label>
+            <select
+              id="cal-link-supply"
+              className="proj-form-input"
+              value={supply?.id ?? ""}
+              onChange={(e) => handleLinkChange(e.target.value)}
+            >
+              <option value="">— Sin vincular —</option>
+              {supplies.map((s) => {
+                const prov = s.providerId ? providers.find((p) => p.id === s.providerId) : null
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.name}{prov ? ` — ${prov.name}` : ""}
+                  </option>
+                )
+              })}
+            </select>
+          </div>
         )}
 
         {/* Contexto de stock para alertas automáticas */}
@@ -212,7 +403,7 @@ function EventModal({
                   />
                 </div>
                 <div className="proj-form-field">
-                  <label className="proj-form-label" htmlFor="cal-amount">Monto estimado ($)</label>
+                  <label className="proj-form-label" htmlFor="cal-amount">Monto estimado ($){provider ? " (opcional)" : ""}</label>
                   <input
                     id="cal-amount"
                     className="proj-form-input"
@@ -221,13 +412,16 @@ function EventModal({
                     placeholder="Ej: 50000"
                   />
                 </div>
+                {error && <p className="text-red-500 text-sm">{error}</p>}
                 <button
                   type="button"
                   className="proj-btn-primary"
-                  onClick={handleCreatePurchase}
+                  onClick={handleBuy}
                   disabled={sending}
                 >
-                  {isStockAlert ? "Confirmar compra realizada" : "Crear pedido de compra"}
+                  {provider
+                    ? (isStockAlert ? "Confirmar compra y avisar al proveedor" : "Crear pedido y abrir WhatsApp")
+                    : (isStockAlert ? "Confirmar compra realizada" : "Crear pedido de compra")}
                 </button>
                 {isStockAlert && (
                   <p className="cal-stock-hint">
@@ -256,17 +450,25 @@ function EventModal({
 // ─── Add event modal ──────────────────────────────────────────────────────────
 
 function AddEventModal({
-  date, userName, onClose, onAdded,
+  date, userName, supplies, onClose, onAdded,
 }: {
   date: string
   userName: string
+  supplies: SupplyItem[]
   onClose: () => void
   onAdded: () => void
 }) {
-  const [title, setTitle]   = useState("")
-  const [type, setType]     = useState<"buy" | "need" | "note">("note")
-  const [amount, setAmount] = useState("")
-  const [error, setError]   = useState("")
+  const [title, setTitle]       = useState("")
+  const [type, setType]         = useState<"buy" | "need" | "note">("note")
+  const [amount, setAmount]     = useState("")
+  const [supplyId, setSupplyId] = useState("")
+  const [error, setError]       = useState("")
+
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    window.addEventListener("keydown", fn)
+    return () => window.removeEventListener("keydown", fn)
+  }, [onClose])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -277,6 +479,7 @@ function AddEventModal({
       type,
       material: type !== "note" ? title.trim() : undefined,
       amount: parseFloat(amount.replace(/\./g, "").replace(",", ".")) || undefined,
+      supplyId: supplyId || undefined,
       createdBy: userName,
     })
     onAdded()
@@ -316,16 +519,35 @@ function AddEventModal({
           </div>
 
           {type !== "note" && (
-            <div className="proj-form-field">
-              <label className="proj-form-label" htmlFor="cal-add-amount">Monto estimado ($)</label>
-              <input
-                id="cal-add-amount"
-                className="proj-form-input"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="Ej: 80000"
-              />
-            </div>
+            <>
+              <div className="proj-form-field">
+                <label className="proj-form-label" htmlFor="cal-add-amount">Monto estimado ($)</label>
+                <input
+                  id="cal-add-amount"
+                  className="proj-form-input"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Ej: 80000"
+                />
+              </div>
+
+              {supplies.length > 0 && (
+                <div className="proj-form-field">
+                  <label className="proj-form-label" htmlFor="cal-add-supply">Material del stock (opcional)</label>
+                  <select
+                    id="cal-add-supply"
+                    className="proj-form-input"
+                    value={supplyId}
+                    onChange={(e) => setSupplyId(e.target.value)}
+                  >
+                    <option value="">Sin vincular al stock</option>
+                    {supplies.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
           )}
 
           <button type="submit" className="proj-btn-primary">Guardar evento</button>
@@ -345,6 +567,8 @@ export default function CalendarioPage() {
   const [month, setMonth] = useState(today.getMonth())
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([])
   const [supplies, setSupplies] = useState<SupplyItem[]>([])
+  const [providers, setProviders] = useState<Provider[]>([])
+  const [links, setLinks] = useState<Record<string, string>>({})
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [addDate, setAddDate] = useState<string | null>(null)
   const [deletingAll, setDeletingAll] = useState(false)
@@ -361,15 +585,19 @@ export default function CalendarioPage() {
   }
 
   const reload = useCallback(async () => {
-    const [manual, auto, stockAlerts, invoiceDues, sups] = await Promise.all([
+    const [manual, auto, stockAlerts, invoiceDues, sups, provs, lks] = await Promise.all([
       getCalendarEvents(),
       getPurchaseCalendarEvents(),
       getStockAlertCalendarEvents(),
       getInvoiceDueDateCalendarEvents(),
       getSupplies(),
+      getProviders(),
+      getCalendarEventLinks(),
     ])
     setAllEvents([...auto, ...stockAlerts, ...invoiceDues, ...manual])
     setSupplies(sups)
+    setProviders(provs)
+    setLinks(lks)
   }, [])
 
   useEffect(() => {
@@ -488,9 +716,12 @@ export default function CalendarioPage() {
           ev={selectedEvent}
           userName={userName}
           supplies={supplies}
+          providers={providers}
+          links={links}
           onClose={() => setSelectedEvent(null)}
           onDeleted={reload}
           onPurchased={reload}
+          onLinkChanged={reload}
         />
       )}
 
@@ -498,6 +729,7 @@ export default function CalendarioPage() {
         <AddEventModal
           date={addDate}
           userName={userName}
+          supplies={supplies}
           onClose={() => setAddDate(null)}
           onAdded={reload}
         />
