@@ -521,6 +521,23 @@ export async function shiftStageSupplyWeeks(stageId: string, delta: number): Pro
   )
 }
 
+// Corre las semanas de inicio/fin de todas las tareas de una etapa el mismo delta.
+export async function shiftStageTaskWeeks(stageId: string, delta: number): Promise<void> {
+  if (delta === 0) return
+  const supabase = createClient()
+  const tasks = await getTasksByStage(stageId)
+  await Promise.all(
+    tasks
+      .filter((t) => t.weekStart != null || t.weekEnd != null)
+      .map((t) => {
+        const patch: Record<string, number> = {}
+        if (t.weekStart != null) patch.week_start = Math.max(1, t.weekStart + delta)
+        if (t.weekEnd != null)   patch.week_end   = Math.max(1, t.weekEnd + delta)
+        return supabase.from("tasks").update(patch).eq("id", t.id)
+      }),
+  )
+}
+
 export async function updateSupplyProvider(supplyId: string, providerId: string | null): Promise<void> {
   const supabase = createClient()
   await supabase.from("supply_items").update({ provider_id: providerId }).eq("id", supplyId)

@@ -98,14 +98,15 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
     }
 
     const stageId = `stage-import-${order}-${++uid}`
-    stages.push({
+    const stage: Stage = {
       id: stageId,
       projectId: "", // filled by bulkImportData using the active project
       name: stageName,
       code,
       order,
       status: "pending",
-    })
+    }
+    stages.push(stage)
 
     let inMaterials = false
     let matCols: MatCols | null = null
@@ -196,6 +197,16 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
       if (!c0 && cells[colOffset + 1] && !cells[colOffset + 2]) {
         currentCategory = cells[colOffset + 1]
       }
+    }
+
+    // Semana de inicio/fin de la etapa = min/max de las semanas de sus tareas
+    const stageWeeks = tasks
+      .filter((t) => t.stageId === stageId)
+      .flatMap((t) => [t.weekStart, t.weekEnd])
+      .filter((w): w is number => typeof w === "number")
+    if (stageWeeks.length > 0) {
+      stage.weekStart = Math.min(...stageWeeks)
+      stage.weekEnd = Math.max(...stageWeeks)
     }
   }
 

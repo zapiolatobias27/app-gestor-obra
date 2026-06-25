@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react"
 import { Stage, TaskStatus } from "@/types/project"
-import { addStage, deleteStage, getStages, updateStage, shiftStageSupplyWeeks } from "@/lib/mock-db"
+import { addStage, deleteStage, getStages, updateStage, shiftStageSupplyWeeks, shiftStageTaskWeeks } from "@/lib/mock-db"
 
 const NEW = "__new__"
 const STATUSES: TaskStatus[] = ["pending", "in_progress", "completed", "blocked"]
@@ -72,8 +72,11 @@ export function EtapasEditor({ onSaved, initialSelectedId }: { onSaved?: () => v
       const delta = (form.weekStart ?? orig?.weekStart ?? 0) - (orig?.weekStart ?? 0)
       await updateStage(form)
       if (delta !== 0) {
-        await shiftStageSupplyWeeks(selectedId, delta)
-        showToast(`Etapa actualizada — materiales corridos ${delta > 0 ? "+" : ""}${delta} sem. ✓`)
+        await Promise.all([
+          shiftStageTaskWeeks(selectedId, delta),
+          shiftStageSupplyWeeks(selectedId, delta),
+        ])
+        showToast(`Etapa actualizada — tareas y materiales corridos ${delta > 0 ? "+" : ""}${delta} sem. ✓`)
       } else {
         showToast("Etapa actualizada ✓")
       }
