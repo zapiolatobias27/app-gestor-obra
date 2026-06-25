@@ -9,6 +9,7 @@ import {
   getProjectByInviteCode, joinProjectByCode,
   inviteCollaboratorByEmail, getProjectInvitations, cancelInvitation,
   getPendingInvitationsForUser, acceptInvitation, rejectInvitation,
+  updateProject,
 } from "@/lib/projects-db"
 import { Project, UserRole, ProjectMember, MemberPermissions, ProjectInvitation } from "@/types/project"
 import { PERM_TREE, isGroup, defaultPermissions } from "@/lib/permissions"
@@ -732,6 +733,103 @@ function InviteByEmailPanel({
   )
 }
 
+// ─── Edit project modal ───────────────────────────────────────────────────────
+
+function EditProjectModal({
+  project, onClose, onSaved,
+}: { project: Project; onClose: () => void; onSaved: () => void }) {
+  const [name, setName]       = useState(project.name)
+  const [address, setAddress] = useState(project.address)
+  const [client, setClient]   = useState(project.client)
+  const [startDate, setStartDate] = useState(project.startDate?.slice(0, 10) ?? "")
+  const [endDate, setEndDate]     = useState(project.endDate?.slice(0, 10) ?? "")
+  const [budget, setBudget]   = useState(project.budgetEstimated ? String(project.budgetEstimated) : "")
+  const [saving, setSaving]   = useState(false)
+  const [error, setError]     = useState<string | null>(null)
+
+  useEffect(() => {
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    window.addEventListener("keydown", fn)
+    return () => window.removeEventListener("keydown", fn)
+  }, [onClose])
+
+  const handleSave = async () => {
+    setError(null)
+    if (!name.trim() || !address.trim() || !client.trim()) {
+      setError("Completá nombre, dirección y cliente.")
+      return
+    }
+    if (endDate && startDate && endDate < startDate) {
+      setError("La fecha de fin no puede ser anterior a la de inicio.")
+      return
+    }
+    setSaving(true)
+    try {
+      await updateProject(project.id, {
+        name: name.trim(),
+        address: address.trim(),
+        client: client.trim(),
+        startDate,
+        endDate: endDate || undefined,
+        budgetEstimated: parseNum(budget),
+      })
+      onSaved()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      setError(err instanceof Error ? err.message : "No se pudo guardar. Intentá de nuevo.")
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="cal-modal-overlay" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div>
+          <h2 className="text-lg font-bold text-stone-900">Editar proyecto</h2>
+          <p className="text-sm text-stone-500 mt-0.5">Modificá los datos de la obra.</p>
+        </div>
+
+        <div className="proj-form-grid">
+          <div className="proj-form-field">
+            <label className="proj-form-label">Nombre de la obra *</label>
+            <input className="proj-form-input" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="proj-form-field">
+            <label className="proj-form-label">Dirección *</label>
+            <input className="proj-form-input" value={address} onChange={(e) => setAddress(e.target.value)} />
+          </div>
+          <div className="proj-form-field">
+            <label className="proj-form-label">Cliente *</label>
+            <input className="proj-form-input" value={client} onChange={(e) => setClient(e.target.value)} />
+          </div>
+          <div className="proj-form-field">
+            <label className="proj-form-label">Fecha de inicio</label>
+            <input className="proj-form-input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </div>
+          <div className="proj-form-field">
+            <label className="proj-form-label">Fecha de fin (opcional)</label>
+            <input className="proj-form-input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+          </div>
+          <div className="proj-form-field">
+            <label className="proj-form-label">Presupuesto estimado ($)</label>
+            <input className="proj-form-input" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="Ej: 15000000" />
+          </div>
+        </div>
+
+        {error && <p className="text-red-500 text-sm">{error}</p>}
+
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={handleSave} disabled={saving} className="proj-btn-primary flex-1">
+            {saving ? "Guardando…" : "Guardar cambios"}
+          </button>
+          <button type="button" onClick={onClose} className="proj-btn-ghost flex-1">Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Project card ─────────────────────────────────────────────────────────────
 
 type ProjectData = { project: Project; members: ProjectMember[] }
@@ -750,6 +848,7 @@ function ProjectCard({
   const isOwner = members.some((m) => m.userId === currentUserId && m.role === "owner")
   const [expanded, setExpanded] = useState(isActive)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [leaveError, setLeaveError] = useState("")
 
@@ -801,6 +900,11 @@ function ProjectCard({
           <button type="button" className="proj-btn-ghost" onClick={() => setExpanded((v) => !v)}>
             {expanded ? "Ocultar detalles" : "Ver detalles"}
           </button>
+          {isOwner && (
+            <button type="button" className="proj-btn-ghost" onClick={() => setShowEditModal(true)}>
+              Editar datos
+            </button>
+          )}
           {isOwner && project.status !== "completed" && (
             <button
               type="button"
@@ -847,6 +951,14 @@ function ProjectCard({
             setShowDeleteModal(false)
             onAction()
           }}
+        />
+      )}
+
+      {showEditModal && (
+        <EditProjectModal
+          project={project}
+          onClose={() => setShowEditModal(false)}
+          onSaved={onAction}
         />
       )}
 

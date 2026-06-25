@@ -140,6 +140,24 @@ export async function reopenProject(projectId: string): Promise<void> {
   await supabase.from("projects").update({ status: "in_progress" }).eq("id", projectId)
 }
 
+// Editar datos básicos de un proyecto ya creado (solo campos provistos).
+export async function updateProject(
+  projectId: string,
+  fields: Partial<Pick<Project, "name" | "address" | "client" | "startDate" | "endDate" | "budgetEstimated">>,
+): Promise<void> {
+  const supabase = createClient()
+  const patch: Record<string, unknown> = {}
+  if (fields.name !== undefined)            patch.name             = fields.name
+  if (fields.address !== undefined)         patch.address          = fields.address
+  if (fields.client !== undefined)          patch.client           = fields.client
+  if (fields.startDate !== undefined)       patch.start_date       = fields.startDate
+  if (fields.endDate !== undefined)         patch.end_date         = fields.endDate || null
+  if (fields.budgetEstimated !== undefined) patch.budget_estimated = fields.budgetEstimated
+  if (Object.keys(patch).length === 0) return
+  const { error } = await supabase.from("projects").update(patch).eq("id", projectId)
+  if (error) throw new Error(error.message)
+}
+
 // ─── Invite / join ────────────────────────────────────────────────────────────
 
 export async function getProjectByInviteCode(code: string): Promise<Project | null> {

@@ -25,6 +25,35 @@ function parseRole(s: string): "owner" | "architect" | "supervisor" {
   return "supervisor"
 }
 
+function parseMaterialStatus(s: string): SupplyItem["purchaseStatus"] {
+  const v = s.toLowerCase()
+  if (v.includes("comprado") || v.includes("entregado") || v.includes("recibido")) return "delivered"
+  if (v.includes("pedido") || v.includes("orden")) return "ordered"
+  return "pending"
+}
+
+// Mapa de columnas de la tabla de materiales, detectado desde la fila de encabezado.
+interface MatCols {
+  name: number; unit: number; qty: number; provider: number; week: number; status: number
+}
+
+function detectMaterialCols(cells: string[], fallbackName: number): MatCols {
+  const find = (...kw: string[]) =>
+    cells.findIndex((c) => {
+      const u = c.toUpperCase()
+      return c !== "" && kw.some((k) => u.includes(k))
+    })
+  const name = find("MATERIAL", "ÍTEM", "ITEM")
+  return {
+    name: name >= 0 ? name : fallbackName,
+    unit: find("UNIDAD"),
+    qty: find("CANTIDAD"),
+    provider: find("PROVEEDOR"),
+    week: find("SEM"),
+    status: find("ESTADO"),
+  }
+}
+
 function toTitle(s: string): string {
   return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
 }
@@ -79,7 +108,7 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
     })
 
     let inMaterials = false
-    let skipMaterialHeader = false
+    let matCols: MatCols | null = null
     let currentCategory = ""
 
     for (const rawRow of rows) {
@@ -87,39 +116,53 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
       const cells = row.map((v) => cell(v))
       const joined = cells.join(" ").toUpperCase()
 
-      // Detect material section start
+      // Detect material section start. La siguiente fila es el encabezado de columnas.
       if (joined.includes("PEDIDO DE MATERIALES")) {
         inMaterials = true
-        skipMaterialHeader = true
-        continue
-      }
-
-      // Skip material column header row
-      if (inMaterials && skipMaterialHeader) {
-        skipMaterialHeader = false
+        matCols = null
         continue
       }
 
       const c0 = cells[colOffset]
-      const isTaskNum = /^\d+$/.test(c0) && parseInt(c0) > 0
+      const isTaskNum = /^\d+(\.\d+)?$/.test(c0) && parseFloat(c0) > 0
 
       if (inMaterials) {
-        if (!c0 || isTaskNum) {
-          // Empty row or task number → exit material section
+        // Primera fila tras el marcador = encabezado: detectar columnas reales.
+        if (!matCols) {
+          matCols = detectMaterialCols(cells, colOffset)
+          continue
+        }
+
+        const name = matCols.name >= 0 ? cells[matCols.name] : ""
+        const unit = matCols.unit >= 0 ? cells[matCols.unit] : ""
+
+        // Fila vacía o número de tarea → fin de la sección de materiales
+        if (!name || isTaskNum) {
           inMaterials = false
-          if (!c0) continue
-          // fall through to task processing
+          matCols = null
+          if (!isTaskNum) continue
+          // si es número de tarea, cae al procesamiento de tareas abajo
         } else {
-          const qty = parseFloat(String(row[2] ?? ""))
-          if (!isNaN(qty) && qty > 0) {
+          // Importar si hay nombre + (unidad o cantidad válida). Acepta "Según proyecto".
+          const qtyRaw = matCols.qty >= 0 ? cells[matCols.qty] : ""
+          const qtyNum = parseFloat(qtyRaw)
+          const hasQty = !isNaN(qtyNum) && qtyNum > 0
+          if (unit || hasQty) {
+            const provider = matCols.provider >= 0 ? cells[matCols.provider] : ""
+            const weekRaw  = matCols.week >= 0 ? cells[matCols.week] : ""
+            const weekNum  = parseInt((weekRaw.match(/\d+/) ?? [""])[0])
+            const status   = matCols.status >= 0 ? cells[matCols.status] : ""
             supplies.push({
               id: `sup-import-${++uid}`,
               stageId,
-              name: cells[0],
-              unit: cells[1],
-              plannedQty: qty,
+              name,
+              unit,
+              plannedQty: hasQty ? qtyNum : 0,
               realQty: 0,
               totalPurchased: 0,
+              providerName: provider || undefined,
+              orderWeek: isNaN(weekNum) ? undefined : weekNum,
+              purchaseStatus: status ? parseMaterialStatus(status) : undefined,
             })
           }
           continue

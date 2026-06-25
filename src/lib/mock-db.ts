@@ -498,6 +498,29 @@ export async function updateSupplyPurchaseStatus(id: string, status: SupplyItem[
   await supabase.from("supply_items").update({ purchase_status: status ?? null }).eq("id", id)
 }
 
+// Semana de pedido de un material puntual (alimenta el calendario en vivo).
+export async function updateSupplyOrderWeek(supplyId: string, orderWeek: number | null): Promise<void> {
+  const supabase = createClient()
+  await supabase.from("supply_items").update({ order_week: orderWeek }).eq("id", supplyId)
+}
+
+// Corre la semana de todos los materiales de una etapa el mismo delta (corrimiento relativo).
+export async function shiftStageSupplyWeeks(stageId: string, delta: number): Promise<void> {
+  if (delta === 0) return
+  const supabase = createClient()
+  const supplies = await getSuppliesByStage(stageId)
+  await Promise.all(
+    supplies
+      .filter((s) => s.orderWeek != null)
+      .map((s) =>
+        supabase
+          .from("supply_items")
+          .update({ order_week: Math.max(1, (s.orderWeek as number) + delta) })
+          .eq("id", s.id),
+      ),
+  )
+}
+
 export async function updateSupplyProvider(supplyId: string, providerId: string | null): Promise<void> {
   const supabase = createClient()
   await supabase.from("supply_items").update({ provider_id: providerId }).eq("id", supplyId)
@@ -851,7 +874,7 @@ export async function getProjectStageSummary(): Promise<ProjectStageSummary> {
 
 // ─── Calendar Events ──────────────────────────────────────────────────────────
 
-function weekToDate(projectStartDate: string, weekNumber: number): string {
+export function weekToDate(projectStartDate: string, weekNumber: number): string {
   const start = new Date(projectStartDate + "T12:00:00")
   start.setDate(start.getDate() + (weekNumber - 1) * 7)
   return start.toISOString().slice(0, 10)
@@ -994,6 +1017,36 @@ export async function getStockAlertCalendarEvents(): Promise<CalendarEvent[]> {
     if (!alreadyExists) {
       events.push({ id: `stock-alert-${supply.id}`, date: alertDateStr, title: supply.name, type: "buy", material: supply.name, supplyId: supply.id, deliveryDays: supply.deliveryDays ?? 7, providerId: supply.providerId, createdBy: "sistema", createdAt: new Date().toISOString() })
     }
+  }
+  return events
+}
+
+// Eventos del calendario derivados de los materiales de etapa (supply_items.orderWeek).
+// Se calculan en vivo: cambiar la semana de un material o correr una etapa los reubica.
+export async function getSupplyCalendarEvents(): Promise<CalendarEvent[]> {
+  const project = await getProject()
+  if (!project) return []
+  const [supplies, stages] = await Promise.all([getSupplies(), getStages()])
+  const nowIso = new Date().toISOString()
+  const events: CalendarEvent[] = []
+
+  for (const supply of supplies) {
+    if (supply.purchaseStatus === "delivered") continue
+    const stage = stages.find((s) => s.id === supply.stageId)
+    const week = supply.orderWeek ?? stage?.weekStart
+    if (week == null || week <= 0) continue
+    events.push({
+      id: `supply-week-${supply.id}`,
+      date: weekToDate(project.startDate, week),
+      title: supply.name,
+      type: "buy",
+      material: supply.name,
+      supplyId: supply.id,
+      deliveryDays: supply.deliveryDays ?? 7,
+      providerId: supply.providerId,
+      createdBy: "sistema",
+      createdAt: nowIso,
+    })
   }
   return events
 }

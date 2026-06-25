@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react"
 import {
   getCalendarEvents, getPurchaseCalendarEvents, getStockAlertCalendarEvents,
-  getInvoiceDueDateCalendarEvents,
+  getSupplyCalendarEvents, getInvoiceDueDateCalendarEvents,
   addCalendarEvent, deleteCalendarEvent, markCalendarEventPurchased,
   createPurchaseRequest, addDeliveryCalendarEvent, getSupplies,
   deleteAllCalendarEvents, getProviders,
@@ -159,7 +159,7 @@ function EventChip({ ev, onClick }: { ev: CalendarEvent; onClick: () => void }) 
     ev.type === "delivery" ? "cal-chip cal-chip-delivery" :
     ev.type === "invoice"  ? "cal-chip cal-chip-invoice" :
                              "cal-chip cal-chip-note"
-  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-") || ev.id.startsWith("overdue-")
+  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("supply-week-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-") || ev.id.startsWith("overdue-")
   const icon = isOverdue ? "⚠️" :
     ev.type === "buy"      ? "📦" :
     ev.type === "need"     ? "🏗️" :
@@ -190,7 +190,7 @@ function EventModal({
   onPurchased: () => void
   onLinkChanged: () => void
 }) {
-  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-")
+  const isAuto = ev.id.startsWith("auto-") || ev.id.startsWith("stock-alert-") || ev.id.startsWith("supply-week-") || ev.id.startsWith("delivery-") || ev.id.startsWith("invoice-")
   const isStockAlert = ev.id.startsWith("stock-alert-")
   const isDelivery = ev.type === "delivery"
   const isInvoice = ev.type === "invoice"
@@ -585,16 +585,17 @@ export default function CalendarioPage() {
   }
 
   const reload = useCallback(async () => {
-    const [manual, auto, stockAlerts, invoiceDues, sups, provs, lks] = await Promise.all([
+    const [manual, auto, stockAlerts, supplyEvents, invoiceDues, sups, provs, lks] = await Promise.all([
       getCalendarEvents(),
       getPurchaseCalendarEvents(),
       getStockAlertCalendarEvents(),
+      getSupplyCalendarEvents(),
       getInvoiceDueDateCalendarEvents(),
       getSupplies(),
       getProviders(),
       getCalendarEventLinks(),
     ])
-    setAllEvents([...auto, ...stockAlerts, ...invoiceDues, ...manual])
+    setAllEvents([...auto, ...stockAlerts, ...supplyEvents, ...invoiceDues, ...manual])
     setSupplies(sups)
     setProviders(provs)
     setLinks(lks)
