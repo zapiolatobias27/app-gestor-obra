@@ -1,5 +1,5 @@
 import type { Stage, Task } from "@/types/project"
-import type { SupplyItem, ImportResult } from "@/types/stock"
+import type { SupplyItem, ImportResult, MergeCandidate } from "@/types/stock"
 import { parseStockRows } from "./xlsx-stock-parser"
 
 export interface SheetData {
@@ -30,6 +30,59 @@ function parseMaterialStatus(s: string): SupplyItem["purchaseStatus"] {
   if (v.includes("comprado") || v.includes("entregado") || v.includes("recibido")) return "delivered"
   if (v.includes("pedido") || v.includes("orden")) return "ordered"
   return "pending"
+}
+
+// Nombre normalizado para cruzar materiales entre la hoja de la etapa y la de Stock,
+// que los nombran distinto: saca paréntesis, trata "Fe" = "Hierro", y deja solo
+// letras y números (descarta espacios, °, símbolos). Ej:
+//   "Cemento portland (1ª partida)" → "cementoportland"
+//   "Fe Ø6"  y  "Hierro Ø6 (246 barras)" → "hierroø6"
+function normMaterialName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\bfe\b/g, "hierro")
+    .replace(/[^a-z0-9à-ÿ]/g, "")
+    .trim()
+}
+
+// Fusiona los datos de plata/inventario de la fila de Stock sobre el material de
+// la etapa (que ya tiene etapa, semana y proveedor). No pisa lo que la etapa ya trae.
+function mergeStockIntoEt(et: SupplyItem, stock: SupplyItem): void {
+  const fill = <K extends keyof SupplyItem>(k: K) => {
+    if (et[k] == null && stock[k] != null) et[k] = stock[k]
+  }
+  // Datos de inventario / costos (los aporta la hoja de Stock)
+  fill("estimatedUnitCost"); fill("realUnitCost")
+  fill("currentStock"); fill("totalCompradoPesos"); fill("diferenciaPesos")
+  fill("stockCompraAnterior"); fill("toComprar"); fill("stockFinal")
+  fill("neededQty"); fill("observaciones")
+  if (!et.realQty && stock.realQty) et.realQty = stock.realQty
+  if (!et.totalPurchased && stock.totalPurchased) et.totalPurchased = stock.totalPurchased
+  // Completar solo si la etapa no lo trajo
+  fill("orderWeek"); fill("providerName"); fill("purchaseStatus")
+}
+
+// Aplica las fusiones elegidas en el preview. Las que están en `disabled` (índices)
+// NO se fusionan: el material de Stock se agrega como fila aparte.
+export function applyMerges(
+  supplies: SupplyItem[],
+  merges: MergeCandidate[],
+  disabled: Set<number>,
+): SupplyItem[] {
+  const result = supplies.map((s) => ({ ...s }))
+  const byId = new Map(result.map((s) => [s.id, s]))
+  merges.forEach((m, i) => {
+    if (disabled.has(i)) {
+      result.push({ ...m.stock })
+    } else {
+      for (const id of m.etIds) {
+        const et = byId.get(id)
+        if (et) mergeStockIntoEt(et, m.stock)
+      }
+    }
+  })
+  return result
 }
 
 // Mapa de columnas de la tabla de materiales, detectado desde la fila de encabezado.
@@ -63,6 +116,7 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
   const stages: Stage[] = []
   const tasks: Task[] = []
   const supplies: SupplyItem[] = []
+  const merges: MergeCandidate[] = []
   let uid = Date.now()
 
   for (const { name, rows } of sheets) {
@@ -223,9 +277,30 @@ export function parseSheets(sheets: SheetData[]): ImportResult {
       stockSheet.rows,
       stages,
     )
-    supplies.push(...stockSupplies)
     stockWarnings.forEach((w) => errors.push({ row: 0, message: `⚠ ${w}` }))
+
+    // Índice de los materiales de las etapas por nombre normalizado (un material
+    // puede estar en varias etapas → varias filas con el mismo nombre).
+    const etByName = new Map<string, SupplyItem[]>()
+    for (const s of supplies) {
+      const k = normMaterialName(s.name)
+      if (!k) continue
+      const arr = etByName.get(k)
+      if (arr) { arr.push(s) } else { etByName.set(k, [s]) }
+    }
+
+    // Solo detectamos los duplicados; la fusión se aplica al confirmar el import
+    // (el usuario puede desactivar fusiones puntuales en el preview).
+    for (const stock of stockSupplies) {
+      const matches = etByName.get(normMaterialName(stock.name))
+      if (matches && matches.length > 0) {
+        merges.push({ stock, etIds: matches.map((m) => m.id), etName: matches[0].name })
+      } else {
+        // Solo está en la hoja de Stock: se carga tal cual.
+        supplies.push(stock)
+      }
+    }
   }
 
-  return { success: errors.length === 0, stages, tasks, supplies, errors }
+  return { success: errors.length === 0, stages, tasks, supplies, errors, merges }
 }

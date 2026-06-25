@@ -56,10 +56,19 @@ export interface ImportError {
   message: string
 }
 
+// Material de la hoja de Stock que coincide con uno o varios de las etapas.
+// El usuario decide en el preview si se fusiona (default) o se importa aparte.
+export interface MergeCandidate {
+  stock: SupplyItem    // fila de la hoja de Stock (se agrega si NO se fusiona)
+  etIds: string[]      // ids de los materiales de etapa con los que coincide
+  etName: string       // nombre representativo del material de etapa (para mostrar)
+}
+
 export interface ImportResult {
   success: boolean
   stages: import("@/types/project").Stage[]
   tasks: import("@/types/project").Task[]
   supplies: SupplyItem[]
   errors: ImportError[]
+  merges: MergeCandidate[]
 }

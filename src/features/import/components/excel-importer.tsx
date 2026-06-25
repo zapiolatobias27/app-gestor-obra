@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useState } from "react"
-import { parseSheets, SheetData } from "@/features/import/logic/excel-parser"
+import { parseSheets, applyMerges, SheetData } from "@/features/import/logic/excel-parser"
 import { bulkImportData } from "@/lib/mock-db"
 import type { ImportResult } from "@/types/stock"
 
@@ -15,6 +15,8 @@ export function ExcelImporter({ onImported }: { onImported?: () => void }) {
   const [dragging, setDragging] = useState(false)
   const [errorMsg, setErrorMsg] = useState("")
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set())
+  const [mergesOpen, setMergesOpen] = useState(false)
+  const [disabledMerges, setDisabledMerges] = useState<Set<number>>(new Set())
 
   const processFile = async (file: File) => {
     if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
@@ -66,11 +68,19 @@ export function ExcelImporter({ onImported }: { onImported?: () => void }) {
     if (file) processFile(file)
   }
 
+  const toggleMerge = (i: number) =>
+    setDisabledMerges((prev) => {
+      const next = new Set(prev)
+      if (next.has(i)) { next.delete(i) } else { next.add(i) }
+      return next
+    })
+
   const handleImport = async () => {
     if (!result) return
     setImporting(true)
     try {
-      await bulkImportData(result.stages, result.tasks, result.supplies)
+      const finalSupplies = applyMerges(result.supplies, result.merges, disabledMerges)
+      await bulkImportData(result.stages, result.tasks, finalSupplies)
       setState("done")
       onImported?.()
     } catch (err) {
@@ -85,6 +95,8 @@ export function ExcelImporter({ onImported }: { onImported?: () => void }) {
     setState("idle")
     setResult(null)
     setErrorMsg("")
+    setMergesOpen(false)
+    setDisabledMerges(new Set())
   }
 
   if (state === "done") {
@@ -97,7 +109,7 @@ export function ExcelImporter({ onImported }: { onImported?: () => void }) {
         </div>
         <p className="font-semibold text-stone-900">Importación completada</p>
         <p className="text-sm text-stone-500">
-          {result?.stages.length} etapas · {result?.tasks.length} tareas · {result?.supplies.length} materiales cargados
+          {result?.stages.length} etapas · {result?.tasks.length} tareas · {(result ? result.supplies.length + disabledMerges.size : 0)} materiales cargados
         </p>
         <button type="button" className="proj-btn-ghost-sm mt-2" onClick={reset}>
           Importar otro archivo
@@ -169,6 +181,56 @@ export function ExcelImporter({ onImported }: { onImported?: () => void }) {
             ))}
             {result.errors.length > 5 && (
               <p className="text-xs text-orange-500">… y {result.errors.length - 5} más</p>
+            )}
+          </div>
+        )}
+
+        {/* Fusiones de materiales duplicados (etapa ↔ lista de Stock) */}
+        {result.merges.length > 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between text-left"
+              onClick={() => setMergesOpen((v) => !v)}
+            >
+              <span className="text-sm font-semibold text-blue-800">
+                {result.merges.length - disabledMerges.size} de {result.merges.length} materiales se fusionarán con los de las etapas
+              </span>
+              <svg
+                className={`w-4 h-4 text-blue-500 transition-transform ${mergesOpen ? "rotate-180" : ""}`}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <p className="text-xs text-blue-600 mt-0.5">
+              Son los mismos materiales que ya vienen en las etapas. Tocá &quot;No fusionar&quot; para importarlo como ítem aparte.
+            </p>
+            {mergesOpen && (
+              <div className="mt-2 space-y-1 max-h-64 overflow-auto">
+                {result.merges.map((m, i) => {
+                  const off = disabledMerges.has(i)
+                  return (
+                    <div key={i} className="flex items-center justify-between gap-3 bg-white rounded-md px-2.5 py-1.5 border border-blue-100">
+                      <div className="min-w-0 text-xs">
+                        <span className="text-stone-800 font-medium">{m.stock.name}</span>
+                        <span className="text-stone-400">{off ? " · se importa aparte" : ` → ${m.etName}`}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleMerge(i)}
+                        className={`shrink-0 text-xs px-2 py-1 rounded-md font-medium transition-colors ${
+                          off
+                            ? "bg-blue-600 text-white hover:bg-blue-700"
+                            : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                        }`}
+                      >
+                        {off ? "Fusionar" : "No fusionar"}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </div>
         )}
