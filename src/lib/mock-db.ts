@@ -1045,27 +1045,41 @@ export async function getSupplyCalendarEvents(): Promise<CalendarEvent[]> {
   if (!project) return []
   const [supplies, stages] = await Promise.all([getSupplies(), getStages()])
   const nowIso = new Date().toISOString()
-  const events: CalendarEvent[] = []
 
+  // El material puede estar duplicado (varias importaciones). Si cualquier copia
+  // tiene proveedor asignado, se reusa para todas las copias del mismo material.
+  const nameToProvider = new Map<string, string>()
+  for (const s of supplies) {
+    const key = s.name.toLowerCase().trim()
+    if (s.providerId && !nameToProvider.has(key)) nameToProvider.set(key, s.providerId)
+  }
+
+  // Un solo chip por material + fecha; se prefiere la copia que tenga proveedor.
+  const byKey = new Map<string, CalendarEvent>()
   for (const supply of supplies) {
-    if (supply.purchaseStatus === "delivered") continue
     const stage = stages.find((s) => s.id === supply.stageId)
     const week = supply.orderWeek ?? stage?.weekStart
     if (week == null || week <= 0) continue
-    events.push({
+    const date = weekToDate(project.startDate, week)
+    const nameKey = supply.name.toLowerCase().trim()
+    const providerId = supply.providerId ?? nameToProvider.get(nameKey)
+    const key = `${nameKey}|${date}`
+    const existing = byKey.get(key)
+    if (existing && !(providerId && !existing.providerId)) continue
+    byKey.set(key, {
       id: `supply-week-${supply.id}`,
-      date: weekToDate(project.startDate, week),
+      date,
       title: supply.name,
       type: "buy",
       material: supply.name,
       supplyId: supply.id,
       deliveryDays: supply.deliveryDays ?? 7,
-      providerId: supply.providerId,
+      providerId,
       createdBy: "sistema",
       createdAt: nowIso,
     })
   }
-  return events
+  return Array.from(byKey.values())
 }
 
 export async function addDeliveryCalendarEvent(supplyId: string, buyDateStr: string, deliveryDays: number): Promise<void> {
